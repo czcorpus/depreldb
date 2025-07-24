@@ -17,13 +17,17 @@
 package storage
 
 import (
+	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
 )
+
+// -----
 
 // DB is a wrapper around badger.DB providing concrete
 // methods for adding/retrieving collocation information.
 type DB struct {
-	bdb *badger.DB
+	bdb       *badger.DB
+	textTypes record.TextTypeMapper
 }
 
 // Close closes the internal Badger database.

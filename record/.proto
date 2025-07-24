@@ -1,0 +1,12 @@
+syntax = "proto3";
+package colloc;
+option go_package = "./pb";
+
+message CollocDBEntry {
+  uint32 freq = 1;
+  int32 avgdist = 2;
+}
+
+message TokenDBEntry {
+  uint32 freq = 1;
+}

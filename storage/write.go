@@ -19,28 +19,48 @@ package storage
 import (
 	"fmt"
 
+	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
+	"google.golang.org/protobuf/proto"
 )
 
+// tokenIDSequence is a generator of unique sequential integer identifiers (1, 2, ...)
+// for storing lemmas (along with PoS if available)
 type tokenIDSequence struct {
 	value uint32
-	cache map[string]uint32
+	cache map[string]uint32 // key is a hashed mix of lemma and PoS
 }
 
-func (tseq *tokenIDSequence) next(lemma string) uint32 {
+// next generates next ID in the stored sequence.
+// Please note that calling the method with the same lemma produces
+// new ID each time. To test if a lemma has already been registered,
+// use recall().
+func (tseq *tokenIDSequence) next(lemmaHash string) uint32 {
 	tseq.value++
 	if tseq.value == 0 {
 		panic("tokenIDSequence overflow")
 	}
-	tseq.cache[lemma] = tseq.value
+	tseq.cache[lemmaHash] = tseq.value
 	return tseq.value
 }
 
-func (tseq *tokenIDSequence) recall(lemma string) uint32 {
-	// zero means = not found (we serve ids from 1)
-	return tseq.cache[lemma]
+func (tseq *tokenIDSequence) nextIfNotFound(lemmaHash string) uint32 {
+	nextID := tseq.recall(lemmaHash)
+	if nextID == 0 {
+		nextID = tseq.next(lemmaHash)
+	}
+	return nextID
 }
 
+// recall returns ID of an already registered lemma. If not found,
+// zero is returned (numbers are generated from 1 so the distinction is clear)
+func (tseq *tokenIDSequence) recall(lemmaHash string) uint32 {
+	// zero means = not found (we serve ids from 1)
+	return tseq.cache[lemmaHash]
+}
+
+// NewTokenIDSequence creates a properly initialized
+// ID sequence generator
 func NewTokenIDSequence() *tokenIDSequence {
 	return &tokenIDSequence{
 		value: 0,
@@ -50,44 +70,53 @@ func NewTokenIDSequence() *tokenIDSequence {
 
 // --------------
 
-func (db *DB) StoreSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, frequency uint32) error {
-	key := encodeSingleTokenKey(tokenID)
-	value := encodeFrequency(frequency)
-	return txn.Set(key, value)
+func (db *DB) StoreSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, freq record.TokenFreq) error {
+	key := record.TokenFreqKey(tokenID, freq.PoS.Byte(), freq.TextType.Byte(), freq.Deprel.Byte())
+	encoded, err := proto.Marshal(freq.AsCollocDBEntry())
+	if err != nil {
+		return fmt.Errorf("failed to encode pair token frequency: %w", err)
+	}
+	return txn.Set(key, encoded)
 }
 
-func (db *DB) StorePairTokenFreqTx(txn *badger.Txn, token1ID, token2ID uint32, frequency uint32, mutualDist uint16) error {
-	key := encodePairTokenKey(token1ID, token2ID)
-	value := encodeFrequencyAndDist(frequency, mutualDist)
-	return txn.Set(key, value)
+func (db *DB) StorePairTokenFreqTx(txn *badger.Txn, token1ID, token2ID uint32, collFreq record.CollocFreq) error {
+	key := record.CollFreqKey(
+		token1ID, collFreq.PoS1.Byte(), collFreq.TextType.Byte(), collFreq.Deprel1.Byte(),
+		token2ID, collFreq.PoS2.Byte(), collFreq.Deprel2.Byte())
+	encoded, err := proto.Marshal(collFreq.AsCollocDBEntry())
+	if err != nil {
+		return fmt.Errorf("failed to encode pair token frequency: %w", err)
+	}
+	return txn.Set(key, encoded)
 }
 
 func (db *DB) CreateTransaction() *badger.Txn {
 	return db.bdb.NewTransaction(true)
 }
 
-func (db *DB) StoreLemmaTx(txn *badger.Txn, lemma string, tokenID uint32) error {
-	key := encodeLemmaKey(lemma)
-	value := encodeTokenID(tokenID)
+func (db *DB) StoreLemmaTx(txn *badger.Txn, lemma record.TokenFreq, tokenID uint32) error {
+	key := record.EncodeLemmaKey(lemma)
+	value := record.TokenIDToBytes(tokenID)
 	if err := txn.Set(key, value); err != nil {
 		return err
 	}
 	// Store tokenID -> lemma mapping (reverse index)
-	idKey := encodeIDToLemmaKey(tokenID)
-	return txn.Set(idKey, []byte(lemma))
+	idKey := record.TokenIDToRevIndexKey(tokenID)
+	return txn.Set(idKey, []byte(lemma.Lemma))
 }
 
 func (db *DB) StoreData(
 	tidSeq *tokenIDSequence,
-	singleFreqs map[string]int,
-	pairFreqs map[[2]string][2]int,
-	minPairFreq int) error {
+	singleFreqs map[record.GroupingKey]record.TokenFreq,
+	pairFreqs map[record.GroupingKey]record.CollocFreq,
+	minPairFreq int,
+) error {
 
 	// use singleFreqs as source of lemmas and create indexes
-	for lemma := range singleFreqs {
+	for _, lemmaEntry := range singleFreqs {
 
 		err := db.bdb.Update(func(txn *badger.Txn) error {
-			if err := db.StoreLemmaTx(txn, lemma, tidSeq.next(lemma)); err != nil {
+			if err := db.StoreLemmaTx(txn, lemmaEntry, tidSeq.nextIfNotFound(lemmaEntry.LemmaKey())); err != nil {
 				return err
 			}
 			return nil
@@ -98,9 +127,9 @@ func (db *DB) StoreData(
 	}
 
 	// Process single token frequencies
-	for lemma, lemmaFreq := range singleFreqs {
+	for _, lemmaEntry := range singleFreqs {
 		err := db.bdb.Update(func(txn *badger.Txn) error {
-			if err := db.StoreSingleTokenFreqTx(txn, tidSeq.recall(lemma), uint32(lemmaFreq)); err != nil {
+			if err := db.StoreSingleTokenFreqTx(txn, tidSeq.recall(lemmaEntry.LemmaKey()), lemmaEntry); err != nil {
 				return err
 			}
 			return nil
@@ -111,17 +140,16 @@ func (db *DB) StoreData(
 	}
 
 	// Process pair frequencies
-	for lemmaPair, pairFreq := range pairFreqs {
-		if pairFreq[0] < minPairFreq {
+	for _, pairFreq := range pairFreqs {
+		if pairFreq.Freq < minPairFreq {
 			continue
 		}
 		err := db.bdb.Update(func(txn *badger.Txn) error {
 			if err := db.StorePairTokenFreqTx(
 				txn,
-				tidSeq.recall(lemmaPair[0]),
-				tidSeq.recall(lemmaPair[1]),
-				uint32(pairFreq[0]),
-				mutualPositionToUint16(pairFreq[1]),
+				tidSeq.recall(pairFreq.Lemma1Key()),
+				tidSeq.recall(pairFreq.Lemma2Key()),
+				pairFreq,
 			); err != nil {
 				return err
 			}
@@ -133,53 +161,4 @@ func (db *DB) StoreData(
 	}
 
 	return nil
-}
-
-// Convenience function to store or update frequency (incremental counting)
-func (db *DB) IncrementSingleTokenFreq(tokenID uint32, increment uint32) error {
-	return db.bdb.Update(func(txn *badger.Txn) error {
-		// Try to get existing frequency
-		var currentFreq uint32
-		err := db.getSingleTokenFreqTx(txn, tokenID, &currentFreq)
-		if err != nil && err != badger.ErrKeyNotFound {
-			return err
-		}
-
-		// Add increment
-		newFreq := currentFreq + increment
-
-		// Store updated frequency
-		key := encodeSingleTokenKey(tokenID)
-		value := encodeFrequency(newFreq)
-		return txn.Set(key, value)
-	})
-}
-
-func (db *DB) IncrementPairTokenFreq(token1ID, token2ID uint32, increment uint32) error {
-	return db.bdb.Update(func(txn *badger.Txn) error {
-		key := encodePairTokenKey(token1ID, token2ID)
-
-		// Try to get existing frequency
-		var currentFreq uint32
-		item, err := txn.Get(key)
-		if err != nil && err != badger.ErrKeyNotFound {
-			return err
-		}
-		if err == nil {
-			err = item.Value(func(val []byte) error {
-				currentFreq = decodeFrequency(val)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-
-		// Add increment
-		newFreq := currentFreq + increment
-
-		// Store updated frequency
-		value := encodeFrequency(newFreq)
-		return txn.Set(key, value)
-	})
 }
