@@ -20,10 +20,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/czcorpus/scollector/pb"
+	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -37,13 +41,37 @@ func (m SortingMeasure) Validate() bool {
 	return m == sortByLogDice || m == sortByTScore
 }
 
+// -------
+
+type CachedIDToLemma struct {
+	db    *DB
+	cache map[uint32]string
+}
+
+func (clm *CachedIDToLemma) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
+	if clm.cache == nil {
+		clm.cache = make(map[uint32]string)
+	}
+	var err error
+	ans, ok := clm.cache[tokenID]
+	if !ok {
+		ans, err = clm.db.getLemmaByIDTxn(txn, tokenID)
+		if err != nil {
+			return "", err
+		}
+	}
+	return ans, nil
+}
+
+// -------
+
 // GetLemmaID returns numeric representation of a provided
 // lemma. In case the lemma is not found, zero is returned
 // (i.e. no error).
-func (db *DB) GetLemmaID(lemma string) (uint32, error) {
+func (db *DB) GetLemmaID(lemmaEntry record.TokenFreq) (uint32, error) {
 	var tokenID uint32
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(encodeLemmaKey(lemma))
+		item, err := txn.Get(record.EncodeLemmaKey(lemmaEntry))
 		if err != nil {
 			return err
 		}
@@ -59,19 +87,16 @@ func (db *DB) GetLemmaID(lemma string) (uint32, error) {
 	return tokenID, err
 }
 
-type lemmaMatch struct {
+type lemmaWithID struct {
 	Value   string
 	TokenID uint32
 }
 
 // GetLemmaIDsByPrefix returns all the
-func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaMatch, error) {
-	ans := make([]lemmaMatch, 0, 8)
-	if !strings.Contains(lemmaPrefix, "_") {
-		lemmaPrefix += "_"
-	}
+func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaWithID, error) {
+	ans := make([]lemmaWithID, 0, 8)
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		key := encodeLemmaKey(lemmaPrefix)
+		key := record.EncodeLemmaPrefixKey(lemmaPrefix)
 		opts := badger.DefaultIteratorOptions
 		opts.Prefix = key
 		it := txn.NewIterator(opts)
@@ -89,7 +114,7 @@ func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaMatch, error) {
 			}
 			ans = append(
 				ans,
-				lemmaMatch{
+				lemmaWithID{
 					Value:   strings.TrimSpace(string(item)),
 					TokenID: tokenID,
 				},
@@ -101,7 +126,7 @@ func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaMatch, error) {
 }
 
 func (db *DB) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
-	item, err := txn.Get(encodeIDToLemmaKey(tokenID))
+	item, err := txn.Get(record.TokenIDToRevIndexKey(tokenID))
 	if err != nil {
 		return "", err
 	}
@@ -117,7 +142,7 @@ func (db *DB) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
 func (db *DB) GetLemmaByID(tokenID uint32) (string, error) {
 	var lemma string
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(encodeIDToLemmaKey(tokenID))
+		item, err := txn.Get(record.TokenIDToRevIndexKey(tokenID))
 		if err != nil {
 			return err
 		}
@@ -133,55 +158,97 @@ func (db *DB) GetLemmaByID(tokenID uint32) (string, error) {
 	return lemma, err
 }
 
-func getSingleTokenFreqCopy(txn *badger.Txn, tokenID uint32) (uint32, error) {
-	key := encodeSingleTokenKey(tokenID)
-
-	item, err := txn.Get(key)
-	if err != nil {
-		return 0, err
-	}
-
-	valBytes, err := item.ValueCopy(nil)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(valBytes) != 4 {
-		return 0, fmt.Errorf("invalid frequency data length: %d", len(valBytes))
-	}
-
-	return binary.LittleEndian.Uint32(valBytes), nil
-}
-
-func (db *DB) getSingleTokenFreq(tokenID uint32) (uint32, error) {
-	var frequency uint32
-
+func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType, deprel byte) ([]record.TokenFreq, error) {
+	ans := []record.TokenFreq{}
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		return db.getSingleTokenFreqTx(txn, tokenID, &frequency)
-	})
-
-	return frequency, err
-}
-
-// Version that works within an existing transaction
-func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, frequency *uint32) error {
-	key := encodeSingleTokenKey(tokenID)
-
-	item, err := txn.Get(key)
-	if err != nil {
-		return err
-	}
-
-	return item.Value(func(val []byte) error {
-		if len(val) != 4 {
-			return fmt.Errorf("invalid frequency data length: %d", len(val))
+		tmp, err := db.getSingleTokenFreqTx(txn, tokenID, pos, textType, deprel)
+		if err != nil {
+			return err
 		}
-		*frequency = binary.LittleEndian.Uint32(val)
+		ans = tmp
 		return nil
 	})
+
+	return ans, err
 }
 
-func (db *DB) CalculateMeasures(lemma string, corpusSize int, limit int, sortBy SortingMeasure) ([]Collocation, error) {
+func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.TokenFreq, error) {
+	cachedTokIDs := CachedIDToLemma{db: db}
+	rawItems, err := db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
+	if err != nil {
+		return []record.TokenFreq{}, err
+	}
+	ans := make([]record.TokenFreq, len(rawItems))
+	for i, ritem := range rawItems {
+		var rec record.TokenFreq
+		rec.Deprel = record.UDDeprelFromByte(ritem.Deprel)
+		rec.Freq = int(ritem.Freq)
+		lemma, err := cachedTokIDs.getLemmaByIDTxn(txn, ritem.TokenID)
+		if err != nil {
+			return []record.TokenFreq{}, err
+		}
+		rec.Lemma = lemma
+		rec.TextType = record.TextType{
+			Readable: db.textTypes.RawToReadable(ritem.TextType),
+			Raw:      ritem.TextType,
+		}
+		rec.PoS = record.UDPosFromByte(ritem.PoS)
+		ans[i] = rec
+	}
+	return ans, nil
+}
+
+// getRawTokenFreqTx searches for all tokens matching provided properties.
+// Attributes pos, textType, deprel are optional (can be set to zero) to search
+// for more variants. But note that they are hierarchical - if pos is zero than
+// other two are ignored. If pos is set and textType is zero, deprel is ignored.
+// Version that works within an existing transaction
+func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.RawTokenFreq, error) {
+	ans := make([]record.RawTokenFreq, 0, 100)
+	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
+	opts := badger.DefaultIteratorOptions
+	opts.Prefix = srchKey
+	it := txn.NewIterator(opts)
+	defer it.Close()
+
+	for it.Rewind(); it.Valid(); it.Next() {
+		var tmp pb.TokenDBEntry
+		err := it.Item().Value(func(val []byte) error {
+			if err := proto.Unmarshal(val, &tmp); err != nil {
+				return fmt.Errorf("failed to decode CollocDBEntry: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return []record.RawTokenFreq{}, err
+		}
+		decKey := record.DecodeTokenFreqKey(it.Item().Key())
+		ans = append(
+			ans,
+			record.RawTokenFreq{
+				TokenID:  tokenID,
+				Deprel:   byte(decKey.Deprel1),
+				Freq:     tmp.Freq,
+				PoS:      decKey.Pos1,
+				TextType: decKey.TextType,
+			},
+		)
+	}
+	return ans, nil
+}
+
+// CalculateMeasures searches for all the matching collocates and calculates
+// their Log-Dice and T-Score in collocations with the searched 'lemma'.
+//
+// note: for more convenient access, use scoll.Calculator
+func (db *DB) CalculateMeasures(
+	lemma, pos, textType string,
+	lemmaIsPrefix bool,
+	corpusSize int,
+	limit int,
+	sortBy SortingMeasure,
+	collocateGroupByPos, collocateGroupByDeprel bool,
+) ([]Collocation, error) {
 	if limit < 0 {
 		panic("CalculateMeasures - invalid limit value")
 	}
@@ -191,26 +258,69 @@ func (db *DB) CalculateMeasures(lemma string, corpusSize int, limit int, sortBy 
 	if !sortBy.Validate() {
 		panic("CalculateMeasures - invalid sortBy value")
 	}
+	// first we find matching lemmas without considering other attributes
+	// (PoS, deprel). If lemmaIsPrefix is false, then we should always find a single
+	// token ID matching the result.
 	variants, err := db.GetLemmaIDsByPrefix(lemma)
 	if err == badger.ErrKeyNotFound {
 		return []Collocation{}, fmt.Errorf("failed to find matching lemma(s): %w", err)
 	}
 
 	var results []Collocation
+	ttID := db.textTypes.ReadableToRaw(textType)
+	posID := record.UDPoSMapping[pos]
+	sumFreqs1 := newTokenFreqGrouping()
+	sumFreqs2 := newTokenFreqGrouping()
+	sumCollFreqs := newCollFreqGrouping()
 
-	for _, lemmaMatch := range variants {
-		// First, get F(x) - frequency of target lemma
-		targetFreq, err := db.getSingleTokenFreq(lemmaMatch.TokenID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get target frequency: %w", err)
-		}
+	// if user entered part of speech, we need to distinguish
+	// the same lemmata with different pos in all the parts where
+	// the searched lemma occurs
+	if pos != "" {
+		sumFreqs1.GroupByPos()
+		sumCollFreqs.GroupByPos1()
+	}
 
-		err = db.bdb.View(func(txn *badger.Txn) error {
+	// if user wanted a concrete text type, we need to "group by" it
+	// in all the data (F(x), F(y), F(x, y)) so we will be able to remove
+	// unwanted text types
+	if textType != "" {
+		sumFreqs1.GroupByTT()
+		sumFreqs2.GroupByTT()
+		sumCollFreqs.GroupByTT()
+	}
+
+	// if outGroupByDeprel is true, it means, user wants separate occurrences
+	// of different deprels for the same lemmas
+	if collocateGroupByDeprel {
+		sumFreqs2.GroupByDeprel()
+		sumCollFreqs.GroupByDeprel2()
+	}
+
+	if collocateGroupByPos {
+		sumFreqs2.GroupByPos()
+		sumCollFreqs.GroupByPos2()
+	}
+
+	cachedTokIDs := CachedIDToLemma{db: db}
+
+	err = db.bdb.View(func(txn *badger.Txn) error {
+		for _, lemmaMatch := range variants {
+			if !lemmaIsPrefix && lemmaMatch.Value != lemma {
+				continue
+			}
+			// First, get F(x) (i.e. freq. of the searched lemma). This search respects
+			// possible provided PoS and text type specification. Attribute deprel cannot
+			// be used in filter this way so it is filtered later (if needed).
+			partialFreqs1, err := db.getRawTokenFreqTx(txn, lemmaMatch.TokenID, posID, ttID, 0) // TODO deprel as an arg.
+			if err != nil {
+				return fmt.Errorf("failed to calculate collocation scores: %w", err)
+			}
+			for _, pf1 := range partialFreqs1 {
+				sumFreqs1.add(pf1)
+			}
 			// Create prefix for all pairs starting with target lemma
-			pairPrefix := make([]byte, 5)
-			pairPrefix[0] = PairTokenPrefix
-			binary.LittleEndian.PutUint32(pairPrefix[1:5], lemmaMatch.TokenID)
-
+			pairPrefix := record.AllCollFreqsOfToken(lemmaMatch.TokenID)
 			opts := badger.DefaultIteratorOptions
 			opts.Prefix = pairPrefix
 			it := txn.NewIterator(opts)
@@ -219,46 +329,82 @@ func (db *DB) CalculateMeasures(lemma string, corpusSize int, limit int, sortBy 
 			for it.Rewind(); it.Valid(); it.Next() {
 				item := it.Item()
 				key := item.Key()
+				decKey := record.DecodeCollFreqKey(key)
 
-				// Extract second lemma ID from key
-				secondLemmaID := binary.LittleEndian.Uint32(key[5:9])
-
-				// Get F(x,y) - pair frequency
-				var pairFreq uint32
-				var pairDist uint16
+				var collFreq pb.CollocDBEntry
+				// Get F(x,y) frequency information
 				err := item.Value(func(val []byte) error {
-					pairFreq, pairDist = decodeFrequencyAndDist(val)
+					if err := proto.Unmarshal(val, &collFreq); err != nil {
+						return fmt.Errorf("failed to decode CollocDBEntry: %w", err)
+					}
 					return nil
 				})
 				if err != nil {
 					// TODO
+					fmt.Fprintf(os.Stderr, "failed to get freqs from db: %s", err)
 					continue
 				}
 
+				// F(x, y)
+				sumCollFreqs.add(record.RawCollocFreq{
+					Token1ID: decKey.Token1ID,
+					PoS1:     decKey.Pos1,
+					Deprel1:  byte(decKey.Deprel1),
+					Token2ID: decKey.Token2ID,
+					PoS2:     decKey.Pos2,
+					Deprel2:  byte(decKey.Deprel2),
+					Freq:     collFreq.Freq,
+					AVGDist:  collFreq.Avgdist,
+				})
+
 				// Get F(y) - frequency of second lemma
-				secondFreq, err := getSingleTokenFreqCopy(txn, secondLemmaID)
+				partialSplitFreq2, err := db.getRawTokenFreqTx(
+					txn, decKey.Token2ID, decKey.Pos2, ttID, decKey.Deprel2)
 				if err != nil {
 					continue // Skip if we can't find single freq
 				}
-				logDice := 14.0 + math.Log2(float64(2*pairFreq)/float64(targetFreq+secondFreq))
-				tscore := (float64(pairFreq) - float64(targetFreq)*float64(secondFreq)/float64(corpusSize)) / math.Sqrt(float64(pairFreq))
-				secondLemma, err := db.getLemmaByIDTxn(txn, secondLemmaID)
-				if err != nil {
-					// TODO
-					continue
+				for _, psf2 := range partialSplitFreq2 {
+					sumFreqs2.add(psf2)
 				}
+			}
+
+			for _, val := range sumCollFreqs.Iter {
+				lemma2, err := cachedTokIDs.getLemmaByIDTxn(txn, val.Token2ID)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "err: ", err)
+					// TODO !!
+				}
+				f1 := sumFreqs1.get(val.GroupingKeyLemma1())
+				f2 := sumFreqs2.get(val.GroupingKeyLemma2())
+				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq*f2.Freq))
+				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(corpusSize)) / math.Sqrt(float64(val.Freq))
 
 				results = append(results, Collocation{
-					RawLemma:      lemmaMatch.Value,
-					RawCollocate:  secondLemma,
-					LogDice:       logDice,
-					TScore:        tscore,
-					RawMutualDist: mutualPositionToInt(pairDist),
+					Lemma: CollMember{
+						Value:  lemmaMatch.Value,
+						PoS:    pos,
+						Deprel: record.UDDeprelFromByte(val.Deprel1).Readable,
+					},
+					Collocate: CollMember{
+						Value:  lemma2,
+						PoS:    record.UDPosFromByte(val.PoS2).Readable,
+						Deprel: record.UDDeprelFromByte(val.Deprel2).Readable,
+					},
+					LogDice:    logDice,
+					TScore:     tscore,
+					MutualDist: float64(val.AVGDist) / 100,
 				})
+
 			}
-			return nil
-		})
+
+		}
+
+		return nil
+	})
+	if err != nil {
+		return []Collocation{}, err
 	}
+
 	switch sortBy {
 	case sortByTScore:
 		sort.Slice(results, func(i, j int) bool {
@@ -275,51 +421,72 @@ func (db *DB) CalculateMeasures(lemma string, corpusSize int, limit int, sortBy 
 	return results, err
 }
 
-func splitByLastUnderscore(s string) (string, string) {
-	lastIndex := strings.LastIndex(s, "_")
-	if lastIndex == -1 {
-		return s, ""
-	}
-	return s[:lastIndex], s[lastIndex+1:]
-}
-
 // ------------------------------------
 
+type CollMember struct {
+	Value  string `json:"value"`
+	PoS    string `json:"pos"`
+	Deprel string `json:"deprel"`
+}
+
 type Collocation struct {
-	RawLemma      string
-	RawCollocate  string
-	LogDice       float64
-	TScore        float64
-	RawMutualDist int
+	Lemma      CollMember `json:"lemma"`
+	Collocate  CollMember `json:"collocate"`
+	LogDice    float64    `json:"logDice"`
+	TScore     float64    `json:"tScore"`
+	MutualDist float64    `json:"mutualDist"`
 }
 
-func (res *Collocation) LemmaAndFn() (string, string) {
-	return splitByLastUnderscore(res.RawLemma)
+func (ldr Collocation) lemmaPropsAsString() string {
+	if ldr.Lemma.PoS == "" && ldr.Lemma.Deprel == "" {
+		return "(-)"
+	}
+	pos := "-"
+	if ldr.Lemma.PoS != "" {
+		pos = ldr.Lemma.PoS
+	}
+	deprel := "-"
+	if ldr.Lemma.Deprel != "" {
+		deprel = ldr.Lemma.Deprel
+	}
+	return fmt.Sprintf("(%s, %s)", deprel, pos)
 }
 
-func (res *Collocation) CollocateAndFn() (string, string) {
-	return splitByLastUnderscore(res.RawCollocate)
-}
-
-func (res Collocation) AvgMutualDist() float32 {
-	return float32(res.RawMutualDist) / 10.0
+func (ldr Collocation) collocatePropsAsString() string {
+	if ldr.Collocate.PoS == "" && ldr.Collocate.Deprel == "" {
+		return "(-)"
+	}
+	pos := "-"
+	if ldr.Collocate.PoS != "" {
+		pos = ldr.Collocate.PoS
+	}
+	deprel := "-"
+	if ldr.Collocate.Deprel != "" {
+		deprel = ldr.Collocate.Deprel
+	}
+	return fmt.Sprintf("(%s, %s)", deprel, pos)
 }
 
 func (ldr Collocation) TabString() string {
-	lemma1, deprel1 := splitByLastUnderscore(ldr.RawLemma)
-	lemma2, deprel2 := splitByLastUnderscore(ldr.RawCollocate)
-	return fmt.Sprintf("%s\t(%s)\t%s\t(%s)\t%01.2f\t%01.2f\t%01.1f", lemma1, deprel1, lemma2, deprel2, ldr.LogDice, ldr.TScore, ldr.AvgMutualDist())
+	return fmt.Sprintf(
+		"%s\t%s\t%s\t%s\t%01.2f\t%01.2f\t\t%01.1f",
+		ldr.Lemma.Value, ldr.lemmaPropsAsString(),
+		ldr.Collocate.Value, ldr.collocatePropsAsString(),
+		ldr.TScore, ldr.LogDice, ldr.MutualDist,
+	)
 }
 
 // --------
 
-func OpenDB(path string) (*DB, error) {
+func OpenDB(path string, textTypes record.TextTypeMapper) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		WithValueLogFileSize(256 << 20). // 256MB value log files
 		WithNumMemtables(8).             // More memtables for writes
 		WithNumLevelZeroTables(8)
 
-	ans := &DB{}
+	ans := &DB{
+		textTypes: textTypes,
+	}
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open collocations database: %w", err)
