@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/czcorpus/cnc-gokit/logging"
 	"github.com/czcorpus/scollector/scoll"
 	"github.com/czcorpus/scollector/storage"
 	"github.com/fatih/color"
@@ -37,6 +38,7 @@ func main() {
 	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel value")
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
 	jsonOut := flag.Bool("json-out", false, "if set then JSON format will be used to print results")
+	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "search - search for collocations of a provided lemma\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [options] [db_path] [lemma]\n\t", filepath.Base(os.Args[0]))
@@ -44,6 +46,10 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	logging.SetupLogging(logging.LoggingConf{
+		Level: logging.LogLevel(*logLevel),
+	})
 
 	db, err := storage.OpenDB(flag.Arg(0))
 	if err != nil {
@@ -91,11 +97,14 @@ func main() {
 	} else {
 		fmt.Println()
 
-		headerFmt := color.New(color.FgGreen, color.Underline).SprintfFunc()
-		columnFmt := color.New(color.FgYellow).SprintfFunc()
+		headerFmt := color.New(color.FgGreen).SprintfFunc()
+		columnFmt := color.New(color.FgHiMagenta).SprintfFunc()
 
-		tbl := table.New("registry", "lemma", "deprel+PoS", "T-Score", "Log-Dice", "mutual dist.")
-		tbl.WithHeaderFormatter(headerFmt).WithFirstColumnFormatter(columnFmt)
+		tbl := table.New("registry", "lemma", "lemma props.", "collocate", "collocate props", "T-Score", "Log-Dice", "mutual dist.")
+		tbl.
+			WithHeaderFormatter(headerFmt).
+			WithFirstColumnFormatter(columnFmt).
+			WithHeaderSeparatorRow('\u2550')
 		for _, item := range ans {
 			tbl.AddRow(item.AsRow()...)
 		}

@@ -26,6 +26,7 @@ import (
 	"github.com/czcorpus/scollector/dataimport"
 
 	"github.com/czcorpus/cnc-gokit/fs"
+	"github.com/czcorpus/cnc-gokit/logging"
 	"github.com/czcorpus/scollector/storage"
 	"github.com/tomachalek/vertigo/v6"
 )
@@ -192,7 +193,13 @@ func main() {
 	syntaxMode := flag.Bool("syntax-mode", true, "switch extraction to syntactic variant")
 	verbose := flag.Bool("verbose", true, "print more info about program activity")
 	minFreq := flag.Int("min-freq", 20, "minimal freq. of collocates to be accepted")
+	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
 	flag.Parse()
+
+	logging.SetupLogging(logging.LoggingConf{
+		Level: logging.LogLevel(*logLevel),
+	})
+
 	if *syntaxMode {
 		var cprof storage.Profile
 		if *iProfile != "" {

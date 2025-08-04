@@ -8,6 +8,6 @@
 
 all:
 	protoc --go_out=. ./record/.proto
-	go build -o search ./cmd/search
+	go build -o scollsrch ./cmd/search
 	go build -o mkscolldb ./cmd/mkscolldb
 

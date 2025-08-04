@@ -482,6 +482,13 @@ func (ldr Collocation) textTypeAsString() string {
 	return "-"
 }
 
+func (ldr Collocation) formatNum(v float64) string {
+	if math.IsInf(v, 1) || math.IsInf(v, -1) {
+		return "-"
+	}
+	return fmt.Sprintf("% 3.2f", v)
+}
+
 func (ldr Collocation) AsRow() []any {
 	return []any{
 		ldr.textTypeAsString(),
@@ -489,9 +496,9 @@ func (ldr Collocation) AsRow() []any {
 		ldr.lemmaPropsAsString(),
 		ldr.Collocate.Value,
 		ldr.collocatePropsAsString(),
-		ldr.TScore,
-		ldr.LogDice,
-		ldr.MutualDist,
+		ldr.formatNum(ldr.TScore),
+		ldr.formatNum(ldr.LogDice),
+		ldr.formatNum(ldr.MutualDist),
 	}
 }
 
@@ -501,7 +508,8 @@ func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*D
 	opts := badger.DefaultOptions(path).
 		WithValueLogFileSize(256 << 20). // 256MB value log files
 		WithNumMemtables(8).             // More memtables for writes
-		WithNumLevelZeroTables(8)
+		WithNumLevelZeroTables(8).
+		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{
 		textTypes: textTypes,
@@ -518,7 +526,8 @@ func OpenDB(path string) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		WithValueLogFileSize(256 << 20). // 256MB value log files
 		WithNumMemtables(8).             // More memtables for writes
-		WithNumLevelZeroTables(8)
+		WithNumLevelZeroTables(8).
+		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{}
 	db, err := badger.Open(opts)
