@@ -27,6 +27,7 @@ import (
 	"github.com/czcorpus/scollector/pb"
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -247,7 +248,7 @@ func (db *DB) CalculateMeasures(
 	corpusSize int,
 	limit int,
 	sortBy SortingMeasure,
-	collocateGroupByPos, collocateGroupByDeprel bool,
+	collocateGroupByPos, collocateGroupByDeprel, collocateGroupByTextType bool,
 ) ([]Collocation, error) {
 	if limit < 0 {
 		panic("CalculateMeasures - invalid limit value")
@@ -286,6 +287,11 @@ func (db *DB) CalculateMeasures(
 	// unwanted text types
 	if textType != "" {
 		sumFreqs1.GroupByTT()
+		sumFreqs2.GroupByTT()
+		sumCollFreqs.GroupByTT()
+	}
+
+	if collocateGroupByTextType {
 		sumFreqs2.GroupByTT()
 		sumCollFreqs.GroupByTT()
 	}
@@ -355,6 +361,7 @@ func (db *DB) CalculateMeasures(
 					Deprel2:  byte(decKey.Deprel2),
 					Freq:     collFreq.Freq,
 					AVGDist:  collFreq.Avgdist,
+					TextType: decKey.TextType,
 				})
 
 				// Get F(y) - frequency of second lemma
@@ -378,7 +385,6 @@ func (db *DB) CalculateMeasures(
 				f2 := sumFreqs2.get(val.GroupingKeyLemma2())
 				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq*f2.Freq))
 				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(corpusSize)) / math.Sqrt(float64(val.Freq))
-
 				results = append(results, Collocation{
 					Lemma: CollMember{
 						Value:  lemmaMatch.Value,
@@ -392,6 +398,7 @@ func (db *DB) CalculateMeasures(
 					},
 					LogDice:    logDice,
 					TScore:     tscore,
+					TextType:   db.textTypes.RawToReadable(val.TextType),
 					MutualDist: float64(val.AVGDist) / 100,
 				})
 
@@ -435,6 +442,7 @@ type Collocation struct {
 	LogDice    float64    `json:"logDice"`
 	TScore     float64    `json:"tScore"`
 	MutualDist float64    `json:"mutualDist"`
+	TextType   string     `json:"textType"`
 }
 
 func (ldr Collocation) lemmaPropsAsString() string {
@@ -467,22 +475,41 @@ func (ldr Collocation) collocatePropsAsString() string {
 	return fmt.Sprintf("(%s, %s)", deprel, pos)
 }
 
-func (ldr Collocation) TabString() string {
-	return fmt.Sprintf(
-		"%s\t%s\t%s\t%s\t%01.2f\t%01.2f\t\t%01.1f",
-		ldr.Lemma.Value, ldr.lemmaPropsAsString(),
-		ldr.Collocate.Value, ldr.collocatePropsAsString(),
-		ldr.TScore, ldr.LogDice, ldr.MutualDist,
-	)
+func (ldr Collocation) textTypeAsString() string {
+	if ldr.TextType != "" {
+		return ldr.TextType
+	}
+	return "-"
+}
+
+func (ldr Collocation) formatNum(v float64) string {
+	if math.IsInf(v, 1) || math.IsInf(v, -1) {
+		return "-"
+	}
+	return fmt.Sprintf("% 3.2f", v)
+}
+
+func (ldr Collocation) AsRow() []any {
+	return []any{
+		ldr.textTypeAsString(),
+		ldr.Lemma.Value,
+		ldr.lemmaPropsAsString(),
+		ldr.Collocate.Value,
+		ldr.collocatePropsAsString(),
+		ldr.formatNum(ldr.TScore),
+		ldr.formatNum(ldr.LogDice),
+		ldr.formatNum(ldr.MutualDist),
+	}
 }
 
 // --------
 
-func OpenDB(path string, textTypes record.TextTypeMapper) (*DB, error) {
+func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		WithValueLogFileSize(256 << 20). // 256MB value log files
 		WithNumMemtables(8).             // More memtables for writes
-		WithNumLevelZeroTables(8)
+		WithNumLevelZeroTables(8).
+		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{
 		textTypes: textTypes,
@@ -492,5 +519,37 @@ func OpenDB(path string, textTypes record.TextTypeMapper) (*DB, error) {
 		return nil, fmt.Errorf("failed to open collocations database: %w", err)
 	}
 	ans.bdb = db
+	return ans, nil
+}
+
+func OpenDB(path string) (*DB, error) {
+	opts := badger.DefaultOptions(path).
+		WithValueLogFileSize(256 << 20). // 256MB value log files
+		WithNumMemtables(8).             // More memtables for writes
+		WithNumLevelZeroTables(8).
+		WithLogger(&ZerologWrapper{})
+
+	ans := &DB{}
+	db, err := badger.Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open collocations database: %w", err)
+	}
+	ans.bdb = db
+
+	iProfName, err := ans.ReadImportProfile()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read data import profile: %w", err)
+	}
+	prof := FindProfile(iProfName)
+	if prof.IsZero() {
+		log.Warn().
+			Str("profile", iProfName).
+			Msg("unknown import profile, text types mapping won't be available")
+
+	} else {
+		log.Info().Str("profile", iProfName).Msg("using data import profile")
+	}
+	ans.textTypes = prof.TextTypes
+
 	return ans, nil
 }

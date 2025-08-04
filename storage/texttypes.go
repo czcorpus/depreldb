@@ -17,8 +17,12 @@ func (mapping *PreconfTextTypeMapping) ReadableToRaw(val string) byte {
 	return mapping.data[val]
 }
 
-func NewPreconfTextTypeMapping() *PreconfTextTypeMapping {
+func NewPreconfTextTypeMapping(data map[string]byte) *PreconfTextTypeMapping {
+	normData := data
+	if normData == nil {
+		normData = map[string]byte{}
+	}
 	return &PreconfTextTypeMapping{
-		data: make(map[string]byte),
+		data: normData,
 	}
 }

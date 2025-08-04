@@ -22,10 +22,13 @@ import (
 )
 
 const (
-	lemmaToIDPrefix   byte = 0x00 // "lemma" -> tokenID
-	singleTokenPrefix byte = 0x01 // tokenID -> frequency
-	pairTokenPrefix   byte = 0x02 // (tokenID1, tokenID2) -> frequency
+	metadataPrefix    byte = 0x01
+	lemmaToIDPrefix   byte = 0x02 // "lemma" -> tokenID
 	idToLemmaPrefix   byte = 0x03 // tokenID -> "lemma" (reverse lookup)
+	singleTokenPrefix byte = 0x04 // tokenID -> frequency
+	pairTokenPrefix   byte = 0x05 // (tokenID1, tokenID2) -> frequency
+
+	MetadataKeyImportProfile byte = 0x01
 )
 
 type DecodedKey struct {
@@ -56,6 +59,10 @@ func EncodeLemmaPrefixKey(lemmaPrefix string) []byte {
 	key[0] = lemmaToIDPrefix
 	copy(key[1:], lemmaBytes)
 	return key
+}
+
+func CreateMetadataKey(keyID byte) []byte {
+	return []byte{metadataPrefix, keyID}
 }
 
 // CollFreqKey produces a byte slice representing a DB entry with a collocation freq. info.

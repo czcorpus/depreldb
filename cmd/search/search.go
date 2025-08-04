@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"text/tabwriter"
 
+	"github.com/czcorpus/cnc-gokit/logging"
 	"github.com/czcorpus/scollector/scoll"
 	"github.com/czcorpus/scollector/storage"
+	"github.com/fatih/color"
+	"github.com/rodaine/table"
 )
 
 func main() {
@@ -34,7 +36,9 @@ func main() {
 	corpusSize := flag.Int("corpus-size", 100000000, "max num. of matching items to show")
 	collGroupByPos := flag.Bool("collocate-group-by-pos", false, "if set, then collocates will be split by their PoS")
 	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel value")
+	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
 	jsonOut := flag.Bool("json-out", false, "if set then JSON format will be used to print results")
+	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "search - search for collocations of a provided lemma\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [options] [db_path] [lemma]\n\t", filepath.Base(os.Args[0]))
@@ -42,8 +46,12 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	tt := storage.NewPreconfTextTypeMapping()
-	db, err := storage.OpenDB(flag.Arg(0), tt)
+
+	logging.SetupLogging(logging.LoggingConf{
+		Level: logging.LogLevel(*logLevel),
+	})
+
+	db, err := storage.OpenDB(flag.Arg(0))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR: ", err)
 		os.Exit(1)
@@ -56,6 +64,11 @@ func main() {
 	if *collGroupByDeprel {
 		gbDeprel = scoll.WithCollocateGroupByDeprel()
 	}
+	gbTT := func(opts *scoll.CalculationOptions) {}
+	if *collGroupByTT {
+		gbTT = scoll.WithCollocateGroupByTextType()
+	}
+
 	ans, err := scoll.FromDatabase(db).GetCollocations(
 		flag.Arg(1),
 		scoll.WithPoS(flag.Arg(2)),
@@ -65,6 +78,7 @@ func main() {
 		scoll.WithSortBy(storage.SortingMeasure(*sortBy)),
 		gbPos,
 		gbDeprel,
+		gbTT,
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR: ", err)
@@ -82,12 +96,18 @@ func main() {
 
 	} else {
 		fmt.Println()
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "lemma\tdep.+PoS\tcoll\tdep.+PoS\tT-Score\tlog-dice\t\tmutual dist.\n")
-		fmt.Fprintf(w, "-------------------------------------------------------------\n")
+
+		headerFmt := color.New(color.FgGreen).SprintfFunc()
+		columnFmt := color.New(color.FgHiMagenta).SprintfFunc()
+
+		tbl := table.New("registry", "lemma", "lemma props.", "collocate", "collocate props", "T-Score", "Log-Dice", "mutual dist.")
+		tbl.
+			WithHeaderFormatter(headerFmt).
+			WithFirstColumnFormatter(columnFmt).
+			WithHeaderSeparatorRow('\u2550')
 		for _, item := range ans {
-			fmt.Fprintln(w, item.TabString())
+			tbl.AddRow(item.AsRow()...)
 		}
-		w.Flush()
+		tbl.Print()
 	}
 }

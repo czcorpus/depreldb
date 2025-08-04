@@ -3,14 +3,15 @@ package scoll
 import "github.com/czcorpus/scollector/storage"
 
 type CalculationOptions struct {
-	PrefixSearch           bool
-	PoS                    string
-	TextType               string
-	CorpusSize             int
-	Limit                  int
-	SortBy                 storage.SortingMeasure
-	CollocateGroupByPos    bool
-	CollocateGroupByDeprel bool
+	PrefixSearch             bool
+	PoS                      string
+	TextType                 string
+	CorpusSize               int
+	Limit                    int
+	SortBy                   storage.SortingMeasure
+	CollocateGroupByPos      bool
+	CollocateGroupByDeprel   bool
+	CollocateGroupByTextType bool
 }
 
 func WithPoS(pos string) func(opts *CalculationOptions) {
@@ -58,5 +59,11 @@ func WithCollocateGroupByPos() func(opts *CalculationOptions) {
 func WithCollocateGroupByDeprel() func(opts *CalculationOptions) {
 	return func(opts *CalculationOptions) {
 		opts.CollocateGroupByDeprel = true
+	}
+}
+
+func WithCollocateGroupByTextType() func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
+		opts.CollocateGroupByTextType = true
 	}
 }
