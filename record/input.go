@@ -93,7 +93,7 @@ type CollocFreq struct {
 
 func (cf CollocFreq) String() string {
 	return fmt.Sprintf(
-		"CollocFreq(lemma1: %s, pos1: %s, deprel1: %s, lemma2: %s, pos2: %s, deprel2: %s, freq: %d, tt: %x)",
+		"CollocFreq(lemma1: %s, pos1: %s, deprel1: %s, lemma2: %s, pos2: %s, deprel2: %s, freq: %d, tt: %s (%x))",
 		cf.Lemma1,
 		UDPoSMapping.GetRev(cf.PoS1.Byte()),
 		UDDeprelMapping.GetRev(cf.Deprel1.Byte()),
@@ -101,7 +101,8 @@ func (cf CollocFreq) String() string {
 		UDPoSMapping.GetRev(cf.PoS2.Byte()),
 		UDDeprelMapping.GetRev(cf.Deprel2.Byte()),
 		cf.Freq,
-		cf.TextType,
+		cf.TextType.Readable,
+		cf.TextType.Raw,
 	)
 }
 

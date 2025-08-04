@@ -17,6 +17,7 @@ func (calc *Calculator) GetCollocations(lemma string, options ...func(opts *Calc
 	for _, opt := range options {
 		opt(&opts)
 	}
+
 	return calc.database.CalculateMeasures(
 		lemma,
 		opts.PoS,
@@ -27,5 +28,6 @@ func (calc *Calculator) GetCollocations(lemma string, options ...func(opts *Calc
 		opts.SortBy,
 		opts.CollocateGroupByPos,
 		opts.CollocateGroupByDeprel,
+		opts.CollocateGroupByTextType,
 	)
 }

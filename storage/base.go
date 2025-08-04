@@ -17,6 +17,8 @@
 package storage
 
 import (
+	"fmt"
+
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
 )
@@ -43,10 +45,42 @@ func (db *DB) Close() error {
 	return nil
 }
 
-func (db *DB) Flush() error {
+func (db *DB) Clear() error {
 	return db.bdb.DropAll()
 }
 
 func (db *DB) Size() (int64, int64) {
 	return db.bdb.Size()
+}
+
+func (db *DB) StoreImportProfile(profileName string) error {
+	k := record.CreateMetadataKey(record.MetadataKeyImportProfile)
+	if err := db.bdb.Update(func(txn *badger.Txn) error {
+		if err := txn.Set(k, []byte(profileName)); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to store import profile: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) ReadImportProfile() (string, error) {
+	k := record.CreateMetadataKey(record.MetadataKeyImportProfile)
+	var result string
+	if err := db.bdb.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(k)
+		if err != nil {
+			return err
+		}
+		item.Value(func(val []byte) error {
+			result = string(val)
+			return nil
+		})
+		return nil
+	}); err != nil {
+		return result, fmt.Errorf("failed to store profile: %w", err)
+	}
+	return result, nil
 }
