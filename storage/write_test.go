@@ -19,11 +19,9 @@ package storage
 import (
 	"testing"
 
-	"github.com/czcorpus/scollector/pb"
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestStoreData(t *testing.T) {
@@ -102,7 +100,7 @@ func TestStoreData(t *testing.T) {
 
 	// Call StoreData
 	minPairFreq := 5
-	err = db.StoreData(tidSeq, singleFreqs, pairFreqs, minPairFreq)
+	_, err = db.StoreData(tidSeq, singleFreqs, pairFreqs, minPairFreq)
 	assert.NoError(t, err, "StoreData should not fail")
 
 	// Verify singleFreqs were stored correctly
@@ -163,17 +161,16 @@ func TestStoreData(t *testing.T) {
 				}
 
 				return item.Value(func(val []byte) error {
-					var entry pb.CollocDBEntry
-					err := proto.Unmarshal(val, &entry)
-					assert.NoError(t, err, "Should unmarshal protobuf data")
+					collValue := record.DecodeCollocValue(val)
 
-					assert.Equal(t, uint32(pairFreq.Freq), entry.Freq,
+					assert.Equal(t, uint32(pairFreq.Freq), collValue.Freq,
 						"Pair frequency should match for %s-%s", pairFreq.Lemma1, pairFreq.Lemma2)
 
-					// Verify average distance (stored as int32 * 100)
-					expectedDist := int32(pairFreq.AVGDist * 100)
-					assert.Equal(t, expectedDist, entry.Avgdist,
-						"Pair distance should match for %s-%s", pairFreq.Lemma1, pairFreq.Lemma2)
+					// Verify average distance (already decoded)
+					decodedDist := collValue.Dist
+					expectedDist := pairFreq.AVGDist
+					assert.InDelta(t, expectedDist, decodedDist, 0.1,
+						"Pair distance should match for %s-%s within 0.1 precision", pairFreq.Lemma1, pairFreq.Lemma2)
 
 					// Note: Dependency relations are encoded in the key, not stored in the protobuf entry
 
@@ -222,7 +219,7 @@ func TestStoreData(t *testing.T) {
 		}
 
 		// Store the low frequency data
-		err = db.StoreData(tidSeq, lowFreqSingles, lowFreqPairs, minPairFreq)
+		_, err = db.StoreData(tidSeq, lowFreqSingles, lowFreqPairs, minPairFreq)
 		assert.NoError(t, err, "StoreData should not fail for low frequency test")
 
 		// Verify the pair was NOT stored (should not be found)

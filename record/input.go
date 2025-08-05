@@ -2,8 +2,6 @@ package record
 
 import (
 	"fmt"
-
-	"github.com/czcorpus/scollector/pb"
 )
 
 // ----
@@ -63,12 +61,6 @@ func (otf TokenFreq) UpdateFreq(freq int) {
 	otf.Freq += freq
 }
 
-func (otf TokenFreq) AsCollocDBEntry() *pb.TokenDBEntry {
-	return &pb.TokenDBEntry{
-		Freq: uint32(otf.Freq),
-	}
-}
-
 func SumTokenFreqs(items []TokenFreq) int {
 	ans := 0
 	for _, item := range items {
@@ -87,7 +79,7 @@ type CollocFreq struct {
 	PoS2     UDPoS
 	Deprel2  UDDeprel
 	Freq     int
-	AVGDist  float32
+	AVGDist  float64
 	TextType TextType
 }
 
@@ -108,7 +100,7 @@ func (cf CollocFreq) String() string {
 
 func (cf *CollocFreq) UpdateFreqAndDist(freq, dist int) {
 	// create a continuous average of distance between lemma1 and lemma2
-	cf.AVGDist = (float32(cf.Freq)*cf.AVGDist + float32(dist)) / float32(cf.Freq+1)
+	cf.AVGDist = (float64(cf.Freq)*cf.AVGDist + float64(dist)) / float64(cf.Freq+1)
 	cf.Freq += freq
 }
 
@@ -117,13 +109,6 @@ func (cf CollocFreq) Key() GroupingKey {
 		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x|%s|%x|%x", cf.TextType.Byte(), cf.Lemma1, cf.PoS1.Byte(), cf.Deprel1.Byte(), cf.Lemma2, cf.PoS2.Byte(), cf.Deprel2.Byte()))
 	}
 	return GroupingKey(fmt.Sprintf("%x|%s|%x|%s|%x", cf.TextType.Byte(), cf.Lemma1, cf.Deprel1.Byte(), cf.Lemma2, cf.Deprel2.Byte()))
-}
-
-func (cf CollocFreq) AsCollocDBEntry() *pb.CollocDBEntry {
-	return &pb.CollocDBEntry{
-		Freq:    uint32(cf.Freq),
-		Avgdist: int32(cf.AVGDist * 100),
-	}
 }
 
 func (cf CollocFreq) Lemma1Key() string {

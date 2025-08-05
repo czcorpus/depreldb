@@ -19,6 +19,7 @@ package record
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 const (
@@ -187,4 +188,84 @@ func TokenIDToRevIndexKey(tokenID uint32) []byte {
 	key[0] = idToLemmaPrefix
 	binary.LittleEndian.PutUint32(key[1:5], tokenID)
 	return key
+}
+
+// EncodeDistance encodes a floating-point distance to a byte.
+// Range: -12.7 to +12.7 with 0.1 precision
+// Encoding: 0-127 for negative values (-12.7 to -0.1), 128-255 for positive values (0.0 to +12.7)
+func EncodeDistance(distance float64) byte {
+	// Scale by 10 for 0.1 precision
+	scaled := int32(math.Round(distance * 10))
+
+	if scaled < 0 {
+		// Negative: map -127 to -1 -> 0 to 126
+		if scaled < -127 {
+			scaled = -127
+		}
+		return byte(-scaled - 1)
+	} else {
+		// Positive: map 0 to 127 -> 128 to 255
+		if scaled > 127 {
+			scaled = 127
+		}
+		return byte(scaled + 128)
+	}
+}
+
+// DecodeDistance decodes a byte back to a floating-point distance.
+func DecodeDistance(encoded byte) float64 {
+	if encoded < 128 {
+		// Negative value: 0-127 maps to -0.1 to -12.7
+		return float64(-(int32(encoded) + 1)) / 10.0
+	} else {
+		// Positive value: 128-255 maps to 0.0 to +12.7
+		return float64(int32(encoded)-128) / 10.0
+	}
+}
+
+// CollocValue represents the binary format for collocation values
+type CollocValue struct {
+	Freq uint32
+	Dist float64
+}
+
+// EncodeCollocValue encodes frequency and distance into a 5-byte binary format
+func EncodeCollocValue(freq uint32, avgDist float64) []byte {
+	value := make([]byte, 5)
+	binary.LittleEndian.PutUint32(value[0:4], freq)
+	value[4] = EncodeDistance(avgDist)
+	return value
+}
+
+// DecodeCollocValue decodes a 5-byte binary format back to frequency and distance
+func DecodeCollocValue(data []byte) CollocValue {
+	if len(data) != 5 {
+		panic(fmt.Sprintf("DecodeCollocValue expected 5 bytes, got %d", len(data)))
+	}
+	return CollocValue{
+		Freq: binary.LittleEndian.Uint32(data[0:4]),
+		Dist: DecodeDistance(data[4]),
+	}
+}
+
+// TokenValue represents the binary format for token frequency values
+type TokenValue struct {
+	Freq uint32
+}
+
+// EncodeTokenValue encodes frequency into a 4-byte binary format
+func EncodeTokenValue(freq uint32) []byte {
+	value := make([]byte, 4)
+	binary.LittleEndian.PutUint32(value, freq)
+	return value
+}
+
+// DecodeTokenValue decodes a 4-byte binary format back to frequency
+func DecodeTokenValue(data []byte) TokenValue {
+	if len(data) != 4 {
+		panic(fmt.Sprintf("DecodeTokenValue expected 4 bytes, got %d", len(data)))
+	}
+	return TokenValue{
+		Freq: binary.LittleEndian.Uint32(data),
+	}
 }

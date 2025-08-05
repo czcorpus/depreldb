@@ -11,7 +11,7 @@ type FreqsCollector interface {
 	AddCooc(lemma1, lemma2 *vertigo.Token, freq int, distance int)
 	ImportSentence(sent []*vertigo.Token)
 	PrintPreview()
-	StoreToDb(db *storage.DB, minFreq int) error
+	StoreToDb(db *storage.DB, minFreq int) (storage.ImportStats, error)
 }
 
 // ----------------------------
@@ -26,6 +26,7 @@ type Searcher struct {
 	parentIdx        int
 	deprelIdx        int
 	freqs            FreqsCollector
+	corpusSize       int64
 }
 
 func (vf *Searcher) analyzeLastSent() {
@@ -33,7 +34,6 @@ func (vf *Searcher) analyzeLastSent() {
 	sent := make([]*vertigo.Token, 0, vf.lastSentEndIdx-vf.lastSentStartIdx+1)
 	vf.prevTokens.ForEach(func(i int, item *vertigo.Token) bool {
 		if item.Idx == vf.lastSentStartIdx {
-			//fmt.Printf("---- s[%d]>>>>\n", vf.lastSentStartIdx)
 			sentOpen = true
 		}
 		if sentOpen {
@@ -42,9 +42,9 @@ func (vf *Searcher) analyzeLastSent() {
 		if item.Idx == vf.lastSentEndIdx {
 			sentOpen = false
 			if len(sent) > 0 {
-				branches := findLeaves(sent, vf.parentIdx, vf.deprelIdx)
+				vf.corpusSize += int64(len(sent))
+				branches := findPathsToRoot(sent, vf.parentIdx, vf.deprelIdx)
 				for _, b := range branches {
-					//b.PrintToWord2Vec(vf.lemmaIdx, vf.deprelIdx)
 					vf.freqs.ImportSentence(b)
 				}
 			}
@@ -74,6 +74,10 @@ func (vf *Searcher) ProcStruct(st *vertigo.Structure, line int, err error) error
 
 func (vf *Searcher) ProcStructClose(st *vertigo.StructureClose, line int, err error) error {
 	return nil
+}
+
+func (vf *Searcher) ImportedCorpusSize() int64 {
+	return vf.corpusSize
 }
 
 func NewSearcher(

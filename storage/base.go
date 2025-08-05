@@ -17,6 +17,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/czcorpus/scollector/record"
@@ -30,6 +31,7 @@ import (
 type DB struct {
 	bdb       *badger.DB
 	textTypes record.TextTypeMapper
+	Metadata  Metadata
 }
 
 // Close closes the internal Badger database.
@@ -53,10 +55,14 @@ func (db *DB) Size() (int64, int64) {
 	return db.bdb.Size()
 }
 
-func (db *DB) StoreImportProfile(profileName string) error {
+func (db *DB) StoreMetadata(data Metadata) error {
 	k := record.CreateMetadataKey(record.MetadataKeyImportProfile)
 	if err := db.bdb.Update(func(txn *badger.Txn) error {
-		if err := txn.Set(k, []byte(profileName)); err != nil {
+		rawMetadata, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+		if err := txn.Set(k, rawMetadata); err != nil {
 			return err
 		}
 		return nil
@@ -66,17 +72,16 @@ func (db *DB) StoreImportProfile(profileName string) error {
 	return nil
 }
 
-func (db *DB) ReadImportProfile() (string, error) {
+func (db *DB) readMetadata() (Metadata, error) {
 	k := record.CreateMetadataKey(record.MetadataKeyImportProfile)
-	var result string
+	var result Metadata
 	if err := db.bdb.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(k)
 		if err != nil {
 			return err
 		}
 		item.Value(func(val []byte) error {
-			result = string(val)
-			return nil
+			return json.Unmarshal(val, &result)
 		})
 		return nil
 	}); err != nil {

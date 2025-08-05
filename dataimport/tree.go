@@ -49,7 +49,7 @@ func asBranch(sent []*vertigo.Token, parentAttrIdx int) branch {
 	return ans
 }
 
-func findLeaves(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []branch {
+func findPathsToRoot(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []branch {
 	syntSent := asBranch(sent, parentAttrIdx)
 	allToks := collections.NewSet[int]()
 	parents := collections.NewSet[int]()
@@ -59,8 +59,9 @@ func findLeaves(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []branch {
 		par := t.PosAttrByIndex(parentAttrIdx)
 		realPars := make([]int, 0, 1)
 		if par != "" {
-			pars := strings.Split(par, "|")
-			for _, realPar := range pars {
+			// we must deal with multivalues (val1|val2) which should
+			// be split into two nodes
+			for realPar := range strings.SplitSeq(par, "|") {
 				strings.TrimPrefix(par, "+")
 				iPar, err := strconv.Atoi(realPar)
 				if err != nil {

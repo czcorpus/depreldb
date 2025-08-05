@@ -17,11 +17,16 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	"github.com/czcorpus/cnc-gokit/logging"
 	"github.com/czcorpus/scollector/scoll"
@@ -29,6 +34,24 @@ import (
 	"github.com/fatih/color"
 	"github.com/rodaine/table"
 )
+
+type srchCommand struct {
+	lemma    string
+	pos      string
+	textType string
+}
+
+func evalREPLCommand(cmd string) srchCommand {
+	items := strings.Split(strings.TrimSpace(cmd), " ")
+	ans := srchCommand{lemma: items[0]}
+	if len(items) > 1 && items[1] != "-" {
+		ans.pos = items[1]
+	}
+	if len(items) > 2 && items[2] != "-" {
+		ans.textType = items[2]
+	}
+	return ans
+}
 
 func main() {
 	limit := flag.Int("limit", 10, "max num. of matching items to show")
@@ -39,6 +62,7 @@ func main() {
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
 	jsonOut := flag.Bool("json-out", false, "if set then JSON format will be used to print results")
 	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
+	repl := flag.Bool("repl", false, "if set, then the search will run in an infinite read-eval-print loop (until Ctrl+C is pressed)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "search - search for collocations of a provided lemma\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [options] [db_path] [lemma]\n\t", filepath.Base(os.Args[0]))
@@ -69,45 +93,93 @@ func main() {
 		gbTT = scoll.WithCollocateGroupByTextType()
 	}
 
-	ans, err := scoll.FromDatabase(db).GetCollocations(
-		flag.Arg(1),
-		scoll.WithPoS(flag.Arg(2)),
-		scoll.WithCorpusSize(*corpusSize),
-		scoll.WithTextType(flag.Arg(3)),
-		scoll.WithLimit(*limit),
-		scoll.WithSortBy(storage.SortingMeasure(*sortBy)),
-		gbPos,
-		gbDeprel,
-		gbTT,
-	)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR: ", err)
-		os.Exit(1)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	cmdReader := bufio.NewReader(os.Stdin)
+
+	currCommand := srchCommand{
+		lemma:    flag.Arg(1),
+		pos:      flag.Arg(2),
+		textType: flag.Arg(3),
 	}
-	if *jsonOut {
-		for _, item := range ans {
-			out, err := json.Marshal(item)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to json-encode value: %s", err)
-				os.Exit(1)
+
+	for {
+
+		if *repl && currCommand.lemma == "" {
+			fmt.Println("\nenter a query (lemma [optional PoS] [optional TT]):")
+			cmdChan := make(chan string, 1)
+			go func() {
+				cmd, _ := cmdReader.ReadString('\n')
+				cmdChan <- cmd
+			}()
+
+			select {
+			case <-ctx.Done():
+				fmt.Println("\nExiting...")
+				return
+			case cmd := <-cmdChan:
+				currCommand = evalREPLCommand(cmd)
 			}
-			fmt.Println(string(out))
 		}
 
-	} else {
-		fmt.Println()
-
-		headerFmt := color.New(color.FgGreen).SprintfFunc()
-		columnFmt := color.New(color.FgHiMagenta).SprintfFunc()
-
-		tbl := table.New("registry", "lemma", "lemma props.", "collocate", "collocate props", "T-Score", "Log-Dice", "mutual dist.")
-		tbl.
-			WithHeaderFormatter(headerFmt).
-			WithFirstColumnFormatter(columnFmt).
-			WithHeaderSeparatorRow('\u2550')
-		for _, item := range ans {
-			tbl.AddRow(item.AsRow()...)
+		if currCommand.lemma == "" {
+			fmt.Println("no query entered")
+			continue
 		}
-		tbl.Print()
+
+		ans, err := scoll.FromDatabase(db).GetCollocations(
+			currCommand.lemma,
+			scoll.WithPoS(currCommand.pos),
+			scoll.WithCorpusSize(*corpusSize),
+			scoll.WithTextType(currCommand.textType),
+			scoll.WithLimit(*limit),
+			scoll.WithSortBy(storage.SortingMeasure(*sortBy)),
+			gbPos,
+			gbDeprel,
+			gbTT,
+		)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR: ", err)
+			os.Exit(1)
+		}
+		if *jsonOut {
+			for _, item := range ans {
+				out, err := json.Marshal(item)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "failed to json-encode value: %s", err)
+					os.Exit(1)
+				}
+				fmt.Println(string(out))
+			}
+
+		} else {
+			fmt.Println()
+
+			if len(ans) > 0 {
+				headerFmt := color.New(color.FgGreen).SprintfFunc()
+				columnFmt := color.New(color.FgHiMagenta).SprintfFunc()
+
+				tbl := table.New("registry", "lemma", "lemma props.", "collocate", "collocate props", "T-Score", "Log-Dice", "mutual dist.")
+				tbl.
+					WithHeaderFormatter(headerFmt).
+					WithFirstColumnFormatter(columnFmt).
+					WithHeaderSeparatorRow('\u2550')
+				for _, item := range ans {
+					tbl.AddRow(item.AsRow()...)
+				}
+				tbl.Print()
+
+			} else {
+				fmt.Println("-- NO RESULT --")
+			}
+		}
+
+		if *repl {
+			currCommand = srchCommand{}
+
+		} else {
+			return
+		}
 	}
 }

@@ -33,7 +33,7 @@ func (f *freqs) newCollocFreq(token1, token2 *vertigo.Token, freq int, distance 
 			Raw:      f.TTMapping[token1.StructAttrs[f.TextTypeAttr]],
 		},
 		Freq:    freq,
-		AVGDist: float32(distance),
+		AVGDist: float64(distance),
 	}
 }
 
@@ -111,12 +111,9 @@ func (f *freqs) PrintPreview() {
 	}
 }
 
-func (f *freqs) StoreToDb(db *storage.DB, minFreq int) error {
+func (f *freqs) StoreToDb(db *storage.DB, minFreq int) (storage.ImportStats, error) {
 	seq := storage.NewTokenIDSequence()
-	if err := db.StoreData(seq, f.Single, f.Double, minFreq); err != nil {
-		return fmt.Errorf("failed to store coll database: %w", err)
-	}
-	return nil
+	return db.StoreData(seq, f.Single, f.Double, minFreq)
 }
 
 func NewFreqs(lemmaIdx, posIdx, deprelIdx int, ttAttr string, ttMapping map[string]byte) *freqs {
@@ -172,8 +169,8 @@ func (f *nullFreqs) PrintPreview() {
 	fmt.Println("NullFreqs ...")
 }
 
-func (f *nullFreqs) StoreToDb(db *storage.DB, minFreq int) error {
-	return nil
+func (f *nullFreqs) StoreToDb(db *storage.DB, minFreq int) (storage.ImportStats, error) {
+	return storage.ImportStats{}, nil
 }
 
 func NewNullFreqs(
