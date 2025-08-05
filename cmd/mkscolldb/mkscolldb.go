@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 
 	"github.com/czcorpus/scollector/dataimport"
+	"github.com/rs/zerolog/log"
 
 	"github.com/czcorpus/cnc-gokit/fs"
 	"github.com/czcorpus/cnc-gokit/logging"
@@ -164,14 +165,37 @@ func runSyntax(path, dbPath string, prof storage.Profile, minFreq int, verbose b
 	if err := db.Clear(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to clear existing database: %s\n", err)
 	}
-	if err := db.StoreImportProfile(prof.Name); err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR: ", err)
-		os.Exit(4)
-	}
-	if err := freqColl.StoreToDb(db, minFreq); err != nil {
+	stats, err := freqColl.StoreToDb(db, minFreq)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR: ", err)
 		os.Exit(2)
 	}
+
+	metadata := storage.Metadata{
+		CorpusSize:    proc.ImportedCorpusSize(),
+		NumCollFreqs:  stats.NumCollFreqs,
+		NumLemmaFreqs: stats.NumLemmaFreqs,
+		NumLemmas:     stats.NumLemmas,
+		ProfileName:   prof.Name,
+	}
+	if err := db.StoreMetadata(metadata); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR: ", err)
+		os.Exit(4)
+	}
+
+	log.Info().
+		Int64("corpusSize", metadata.CorpusSize).
+		Int("numCollFreqs", metadata.NumCollFreqs).
+		Int("numLemmaFreqs", metadata.NumLemmaFreqs).
+		Int("numLemmas", metadata.NumLemmas).
+		Str("profileName", metadata.ProfileName).
+		Msg("collected and stored dataset metadata")
+	fmt.Fprintf(
+		os.Stderr,
+		"import stats - total lemmas: %d, num single lemma freqs: %d, num coll freqs: %d",
+		stats.NumLemmas, stats.NumLemmaFreqs, stats.NumCollFreqs,
+	)
+
 	db.Close() // this is ok to be called on possible nil
 
 }

@@ -89,3 +89,11 @@ func FindProfile(name string) Profile {
 		return Profile{}
 	}
 }
+
+type Metadata struct {
+	CorpusSize    int64  `json:"corpusSize"`
+	ProfileName   string `json:"profileName"`
+	NumCollFreqs  int    `json:"numCollFreqs"`
+	NumLemmaFreqs int    `json:"numLemmaFreqs"`
+	NumLemmas     int    `json:"numLemmas"`
+}

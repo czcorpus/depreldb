@@ -8,10 +8,10 @@ type tokenFreqGrouping struct {
 	groupByPos    bool
 	groupByTT     bool
 	groupByDeprel bool
-	data          map[string]record.RawTokenFreq
+	data          map[record.BinaryKey]record.RawTokenFreq
 }
 
-func (rg *tokenFreqGrouping) Iter(yield func(k string, v record.RawTokenFreq) bool) {
+func (rg *tokenFreqGrouping) Iter(yield func(k record.BinaryKey, v record.RawTokenFreq) bool) {
 	for k, v := range rg.data {
 		if cont := yield(k, v); !cont {
 			break
@@ -44,7 +44,7 @@ func (rg *tokenFreqGrouping) add(f record.RawTokenFreq) {
 	if !rg.groupByDeprel {
 		f.Deprel = 0
 	}
-	key := f.GroupingKey()
+	key := f.GroupingKeyBinary()
 	curr, ok := rg.data[key]
 	if !ok {
 		curr = f
@@ -55,13 +55,13 @@ func (rg *tokenFreqGrouping) add(f record.RawTokenFreq) {
 	rg.data[key] = curr
 }
 
-func (rg *tokenFreqGrouping) get(key string) record.RawTokenFreq {
+func (rg *tokenFreqGrouping) get(key record.BinaryKey) record.RawTokenFreq {
 	return rg.data[key]
 }
 
 func newTokenFreqGrouping() *tokenFreqGrouping {
 	return &tokenFreqGrouping{
-		data: make(map[string]record.RawTokenFreq),
+		data: make(map[record.BinaryKey]record.RawTokenFreq),
 	}
 }
 
@@ -73,10 +73,10 @@ type collFreqGrouping struct {
 	groupByPos2    bool
 	groupByDeprel2 bool
 	groupByTT      bool
-	data           map[string]record.RawCollocFreq
+	data           map[record.CollBinaryKey]record.RawCollocFreq
 }
 
-func (rg *collFreqGrouping) Iter(yield func(k string, v record.RawCollocFreq) bool) {
+func (rg *collFreqGrouping) Iter(yield func(k record.CollBinaryKey, v record.RawCollocFreq) bool) {
 	for k, v := range rg.data {
 		if cont := yield(k, v); !cont {
 			break
@@ -127,7 +127,7 @@ func (rg *collFreqGrouping) add(f record.RawCollocFreq) {
 		f.Deprel2 = 0
 	}
 
-	key := f.GroupingKey()
+	key := f.GroupingKeyBinary()
 	curr, ok := rg.data[key]
 	if !ok {
 		curr = f
@@ -140,6 +140,6 @@ func (rg *collFreqGrouping) add(f record.RawCollocFreq) {
 
 func newCollFreqGrouping() *collFreqGrouping {
 	return &collFreqGrouping{
-		data: make(map[string]record.RawCollocFreq),
+		data: make(map[record.CollBinaryKey]record.RawCollocFreq),
 	}
 }

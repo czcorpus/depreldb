@@ -25,11 +25,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/czcorpus/scollector/pb"
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -233,11 +231,9 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 	defer it.Close()
 
 	for it.Rewind(); it.Valid(); it.Next() {
-		var tmp pb.TokenDBEntry
+		var tokenValue record.TokenValue
 		err := it.Item().Value(func(val []byte) error {
-			if err := proto.Unmarshal(val, &tmp); err != nil {
-				return fmt.Errorf("failed to decode CollocDBEntry: %w", err)
-			}
+			tokenValue = record.DecodeTokenValue(val)
 			return nil
 		})
 		if err != nil {
@@ -249,7 +245,7 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 			record.RawTokenFreq{
 				TokenID:  tokenID,
 				Deprel:   byte(decKey.Deprel1),
-				Freq:     tmp.Freq,
+				Freq:     tokenValue.Freq,
 				PoS:      decKey.Pos1,
 				TextType: decKey.TextType,
 			},
@@ -347,8 +343,11 @@ func (db *DB) CalculateMeasures(
 			}
 			// Create prefix for all pairs starting with target lemma
 			pairPrefix := record.AllCollFreqsOfToken(lemmaMatch.TokenID)
-			opts := badger.DefaultIteratorOptions
-			opts.Prefix = pairPrefix
+			opts := badger.IteratorOptions{
+				Prefix:         pairPrefix,
+				PrefetchValues: true,
+				PrefetchSize:   1000,
+			}
 			it := txn.NewIterator(opts)
 			defer it.Close()
 			numDbItems := 0
@@ -358,12 +357,10 @@ func (db *DB) CalculateMeasures(
 				key := item.Key()
 				decKey := record.DecodeCollFreqKey(key)
 
-				var collFreq pb.CollocDBEntry
+				var collValue record.CollocValue
 				// Get F(x,y) frequency information
 				err := item.Value(func(val []byte) error {
-					if err := proto.Unmarshal(val, &collFreq); err != nil {
-						return fmt.Errorf("failed to decode CollocDBEntry: %w", err)
-					}
+					collValue = record.DecodeCollocValue(val)
 					return nil
 				})
 				if err != nil {
@@ -380,8 +377,8 @@ func (db *DB) CalculateMeasures(
 					Token2ID: decKey.Token2ID,
 					PoS2:     decKey.Pos2,
 					Deprel2:  byte(decKey.Deprel2),
-					Freq:     collFreq.Freq,
-					AVGDist:  collFreq.Avgdist,
+					Freq:     collValue.Freq,
+					AVGDist:  collValue.Dist,
 					TextType: decKey.TextType,
 				})
 
@@ -405,8 +402,8 @@ func (db *DB) CalculateMeasures(
 					fmt.Fprintln(os.Stderr, "err: ", err)
 					// TODO !!
 				}
-				f1 := sumFreqs1.get(val.GroupingKeyLemma1())
-				f2 := sumFreqs2.get(val.GroupingKeyLemma2())
+				f1 := sumFreqs1.get(val.GroupingKeyLemma1Binary())
+				f2 := sumFreqs2.get(val.GroupingKeyLemma2Binary())
 				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq*f2.Freq))
 				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(corpusSize)) / math.Sqrt(float64(val.Freq))
 				results = append(results, Collocation{
@@ -423,7 +420,7 @@ func (db *DB) CalculateMeasures(
 					LogDice:    logDice,
 					TScore:     tscore,
 					TextType:   db.textTypes.RawToReadable(val.TextType),
-					MutualDist: float64(val.AVGDist) / 100,
+					MutualDist: val.AVGDist,
 				})
 				numVar++
 			}
@@ -534,11 +531,11 @@ func (ldr Collocation) AsRow() []any {
 func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		// Read-optimized settings for large datasets
-		WithValueLogFileSize(1 << 30).               // 1GB value log files for better compression
-		WithBlockCacheSize(512 << 20).               // 512MB block cache
-		WithIndexCacheSize(256 << 20).               // 256MB index cache
-		WithNumMemtables(2).                         // Minimal memtables
-		WithNumLevelZeroTables(2).                   // Minimal level zero tables
+		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
+		WithBlockCacheSize(512 << 20). // 512MB block cache
+		WithIndexCacheSize(256 << 20). // 256MB index cache
+		WithNumMemtables(2).           // Minimal memtables
+		WithNumLevelZeroTables(2).     // Minimal level zero tables
 		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{
@@ -555,11 +552,11 @@ func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*D
 func OpenDB(path string) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		// Read-optimized settings for large datasets
-		WithValueLogFileSize(1 << 30).               // 1GB value log files for better compression
-		WithBlockCacheSize(512 << 20).               // 512MB block cache
-		WithIndexCacheSize(256 << 20).               // 256MB index cache
-		WithNumMemtables(2).                         // Minimal memtables
-		WithNumLevelZeroTables(2).                   // Minimal level zero tables
+		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
+		WithBlockCacheSize(512 << 20). // 512MB block cache
+		WithIndexCacheSize(256 << 20). // 256MB index cache
+		WithNumMemtables(2).           // Minimal memtables
+		WithNumLevelZeroTables(2).     // Minimal level zero tables
 		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{}
@@ -569,18 +566,19 @@ func OpenDB(path string) (*DB, error) {
 	}
 	ans.bdb = db
 
-	iProfName, err := ans.ReadImportProfile()
+	metadata, err := ans.readMetadata()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read data import profile: %w", err)
 	}
-	prof := FindProfile(iProfName)
+	ans.Metadata = metadata
+	prof := FindProfile(metadata.ProfileName)
 	if prof.IsZero() {
 		log.Warn().
-			Str("profile", iProfName).
+			Str("profile", metadata.ProfileName).
 			Msg("unknown import profile, text types mapping won't be available")
 
 	} else {
-		log.Info().Str("profile", iProfName).Msg("using data import profile")
+		log.Info().Str("profile", metadata.ProfileName).Msg("using data import profile")
 	}
 	ans.textTypes = prof.TextTypes
 

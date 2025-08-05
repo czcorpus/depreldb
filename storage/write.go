@@ -21,7 +21,6 @@ import (
 
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
-	"google.golang.org/protobuf/proto"
 )
 
 // tokenIDSequence is a generator of unique sequential integer identifiers (1, 2, ...)
@@ -44,12 +43,14 @@ func (tseq *tokenIDSequence) next(lemmaHash string) uint32 {
 	return tseq.value
 }
 
-func (tseq *tokenIDSequence) nextIfNotFound(lemmaHash string) uint32 {
+func (tseq *tokenIDSequence) nextIfNotFound(lemmaHash string) (uint32, bool) {
 	nextID := tseq.recall(lemmaHash)
+	found := true
 	if nextID == 0 {
 		nextID = tseq.next(lemmaHash)
+		found = false
 	}
-	return nextID
+	return nextID, found
 }
 
 // recall returns ID of an already registered lemma. If not found,
@@ -72,10 +73,7 @@ func NewTokenIDSequence() *tokenIDSequence {
 
 func (db *DB) StoreSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, freq record.TokenFreq) error {
 	key := record.TokenFreqKey(tokenID, freq.PoS.Byte(), freq.TextType.Byte(), freq.Deprel.Byte())
-	encoded, err := proto.Marshal(freq.AsCollocDBEntry())
-	if err != nil {
-		return fmt.Errorf("failed to encode pair token frequency: %w", err)
-	}
+	encoded := record.EncodeTokenValue(uint32(freq.Freq))
 	return txn.Set(key, encoded)
 }
 
@@ -83,10 +81,7 @@ func (db *DB) StorePairTokenFreqTx(txn *badger.Txn, token1ID, token2ID uint32, c
 	key := record.CollFreqKey(
 		token1ID, collFreq.PoS1.Byte(), collFreq.TextType.Byte(), collFreq.Deprel1.Byte(),
 		token2ID, collFreq.PoS2.Byte(), collFreq.Deprel2.Byte())
-	encoded, err := proto.Marshal(collFreq.AsCollocDBEntry())
-	if err != nil {
-		return fmt.Errorf("failed to encode pair token frequency: %w", err)
-	}
+	encoded := record.EncodeCollocValue(uint32(collFreq.Freq), collFreq.AVGDist)
 	return txn.Set(key, encoded)
 }
 
@@ -105,24 +100,35 @@ func (db *DB) StoreLemmaTx(txn *badger.Txn, lemma record.TokenFreq, tokenID uint
 	return txn.Set(idKey, []byte(lemma.Lemma))
 }
 
+type ImportStats struct {
+	NumCollFreqs  int
+	NumLemmaFreqs int
+	NumLemmas     int
+}
+
 func (db *DB) StoreData(
 	tidSeq *tokenIDSequence,
 	singleFreqs map[record.GroupingKey]record.TokenFreq,
 	pairFreqs map[record.GroupingKey]record.CollocFreq,
 	minPairFreq int,
-) error {
-
+) (ImportStats, error) {
+	var res ImportStats
 	// use singleFreqs as source of lemmas and create indexes
 	for _, lemmaEntry := range singleFreqs {
 
 		err := db.bdb.Update(func(txn *badger.Txn) error {
-			if err := db.StoreLemmaTx(txn, lemmaEntry, tidSeq.nextIfNotFound(lemmaEntry.LemmaKey())); err != nil {
+			nextId, alreadyStored := tidSeq.nextIfNotFound(lemmaEntry.LemmaKey())
+			if alreadyStored {
+				return nil
+			}
+			if err := db.StoreLemmaTx(txn, lemmaEntry, nextId); err != nil {
 				return err
 			}
+			res.NumLemmas++
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("failed to store lemma: %w", err)
+			return res, fmt.Errorf("failed to store lemma: %w", err)
 		}
 	}
 
@@ -132,10 +138,11 @@ func (db *DB) StoreData(
 			if err := db.StoreSingleTokenFreqTx(txn, tidSeq.recall(lemmaEntry.LemmaKey()), lemmaEntry); err != nil {
 				return err
 			}
+			res.NumLemmaFreqs++
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("failed to store single freq: %w", err)
+			return res, fmt.Errorf("failed to store single freq: %w", err)
 		}
 	}
 
@@ -153,12 +160,13 @@ func (db *DB) StoreData(
 			); err != nil {
 				return err
 			}
+			res.NumCollFreqs++
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("failed to store pair freq: %w", err)
+			return res, fmt.Errorf("failed to store pair freq: %w", err)
 		}
 	}
 
-	return nil
+	return res, nil
 }
