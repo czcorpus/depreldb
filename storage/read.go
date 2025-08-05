@@ -23,6 +23,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/czcorpus/scollector/pb"
 	"github.com/czcorpus/scollector/record"
@@ -44,22 +45,41 @@ func (m SortingMeasure) Validate() bool {
 
 // -------
 
-type CachedIDToLemma struct {
-	db    *DB
-	cache map[uint32]string
+type itemsWalktrhoughCache struct {
+	db                *DB
+	idToLemmaCache    map[uint32]string
+	rawTokenFreqCache map[string][]record.RawTokenFreq
 }
 
-func (clm *CachedIDToLemma) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
-	if clm.cache == nil {
-		clm.cache = make(map[uint32]string)
+func (clm *itemsWalktrhoughCache) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
+	if clm.idToLemmaCache == nil {
+		clm.idToLemmaCache = make(map[uint32]string)
 	}
 	var err error
-	ans, ok := clm.cache[tokenID]
+	ans, ok := clm.idToLemmaCache[tokenID]
 	if !ok {
 		ans, err = clm.db.getLemmaByIDTxn(txn, tokenID)
 		if err != nil {
 			return "", err
 		}
+		clm.idToLemmaCache[tokenID] = ans
+	}
+	return ans, nil
+}
+
+func (clm *itemsWalktrhoughCache) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.RawTokenFreq, error) {
+	if clm.rawTokenFreqCache == nil {
+		clm.rawTokenFreqCache = make(map[string][]record.RawTokenFreq)
+	}
+	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
+	ans, ok := clm.rawTokenFreqCache[string(srchKey)]
+	var err error
+	if !ok {
+		ans, err = clm.db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
+		if err != nil {
+			return []record.RawTokenFreq{}, err
+		}
+		clm.rawTokenFreqCache[string(srchKey)] = ans
 	}
 	return ans, nil
 }
@@ -174,7 +194,7 @@ func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType, deprel byte) ([]
 }
 
 func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.TokenFreq, error) {
-	cachedTokIDs := CachedIDToLemma{db: db}
+	cachedTokIDs := itemsWalktrhoughCache{db: db}
 	rawItems, err := db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
 	if err != nil {
 		return []record.TokenFreq{}, err
@@ -308,7 +328,7 @@ func (db *DB) CalculateMeasures(
 		sumCollFreqs.GroupByPos2()
 	}
 
-	cachedTokIDs := CachedIDToLemma{db: db}
+	walkthruCache := itemsWalktrhoughCache{db: db}
 
 	err = db.bdb.View(func(txn *badger.Txn) error {
 		for _, lemmaMatch := range variants {
@@ -318,7 +338,7 @@ func (db *DB) CalculateMeasures(
 			// First, get F(x) (i.e. freq. of the searched lemma). This search respects
 			// possible provided PoS and text type specification. Attribute deprel cannot
 			// be used in filter this way so it is filtered later (if needed).
-			partialFreqs1, err := db.getRawTokenFreqTx(txn, lemmaMatch.TokenID, posID, ttID, 0) // TODO deprel as an arg.
+			partialFreqs1, err := walkthruCache.getRawTokenFreqTx(txn, lemmaMatch.TokenID, posID, ttID, 0) // TODO deprel as an arg.
 			if err != nil {
 				return fmt.Errorf("failed to calculate collocation scores: %w", err)
 			}
@@ -331,7 +351,8 @@ func (db *DB) CalculateMeasures(
 			opts.Prefix = pairPrefix
 			it := txn.NewIterator(opts)
 			defer it.Close()
-
+			numDbItems := 0
+			t00 := time.Now()
 			for it.Rewind(); it.Valid(); it.Next() {
 				item := it.Item()
 				key := item.Key()
@@ -365,7 +386,7 @@ func (db *DB) CalculateMeasures(
 				})
 
 				// Get F(y) - frequency of second lemma
-				partialSplitFreq2, err := db.getRawTokenFreqTx(
+				partialSplitFreq2, err := walkthruCache.getRawTokenFreqTx(
 					txn, decKey.Token2ID, decKey.Pos2, ttID, decKey.Deprel2)
 				if err != nil {
 					continue // Skip if we can't find single freq
@@ -373,10 +394,13 @@ func (db *DB) CalculateMeasures(
 				for _, psf2 := range partialSplitFreq2 {
 					sumFreqs2.add(psf2)
 				}
+				numDbItems++
 			}
-
+			fmt.Printf("time to get iterator2: %.2f, numdb: %d\n", time.Since(t00).Seconds(), numDbItems)
+			numVar := 0
+			t0 := time.Now()
 			for _, val := range sumCollFreqs.Iter {
-				lemma2, err := cachedTokIDs.getLemmaByIDTxn(txn, val.Token2ID)
+				lemma2, err := walkthruCache.getLemmaByIDTxn(txn, val.Token2ID)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "err: ", err)
 					// TODO !!
@@ -401,9 +425,12 @@ func (db *DB) CalculateMeasures(
 					TextType:   db.textTypes.RawToReadable(val.TextType),
 					MutualDist: float64(val.AVGDist) / 100,
 				})
-
+				numVar++
 			}
-
+			log.Debug().
+				Int("numTried", numVar).
+				Str("elapsed", fmt.Sprintf("%1.2f", time.Since(t0).Seconds())).
+				Msg("tried all the matching collocations")
 		}
 
 		return nil
@@ -506,9 +533,12 @@ func (ldr Collocation) AsRow() []any {
 
 func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
 	opts := badger.DefaultOptions(path).
-		WithValueLogFileSize(256 << 20). // 256MB value log files
-		WithNumMemtables(8).             // More memtables for writes
-		WithNumLevelZeroTables(8).
+		// Read-optimized settings for large datasets
+		WithValueLogFileSize(1 << 30).               // 1GB value log files for better compression
+		WithBlockCacheSize(512 << 20).               // 512MB block cache
+		WithIndexCacheSize(256 << 20).               // 256MB index cache
+		WithNumMemtables(2).                         // Minimal memtables
+		WithNumLevelZeroTables(2).                   // Minimal level zero tables
 		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{
@@ -524,9 +554,12 @@ func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*D
 
 func OpenDB(path string) (*DB, error) {
 	opts := badger.DefaultOptions(path).
-		WithValueLogFileSize(256 << 20). // 256MB value log files
-		WithNumMemtables(8).             // More memtables for writes
-		WithNumLevelZeroTables(8).
+		// Read-optimized settings for large datasets
+		WithValueLogFileSize(1 << 30).               // 1GB value log files for better compression
+		WithBlockCacheSize(512 << 20).               // 512MB block cache
+		WithIndexCacheSize(256 << 20).               // 256MB index cache
+		WithNumMemtables(2).                         // Minimal memtables
+		WithNumLevelZeroTables(2).                   // Minimal level zero tables
 		WithLogger(&ZerologWrapper{})
 
 	ans := &DB{}
