@@ -86,7 +86,7 @@ func (db *DB) readMetadata() (Metadata, error) {
 		})
 		return nil
 	}); err != nil {
-		return result, fmt.Errorf("failed to store profile: %w", err)
+		return result, fmt.Errorf("failed get profile: %w", err)
 	}
 	return result, nil
 }
@@ -94,7 +94,7 @@ func (db *DB) readMetadata() (Metadata, error) {
 // --------
 
 func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
-	db, err := OpenDB(path)
+	db, err := openDB(path, false)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +106,10 @@ func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*D
 }
 
 func OpenDB(path string) (*DB, error) {
+	return openDB(path, true)
+}
+
+func openDB(path string, loadProfile bool) (*DB, error) {
 	opts := badger.DefaultOptions(path).
 		// Read-optimized settings for large datasets
 		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
@@ -122,27 +126,29 @@ func OpenDB(path string) (*DB, error) {
 	}
 	ans.bdb = db
 
-	metadata, err := ans.readMetadata()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read data import profile: %w", err)
-	}
-	ans.Metadata = metadata
-	prof := FindProfile(metadata.ProfileName)
-	if prof.IsZero() {
-		log.Warn().
-			Str("profile", metadata.ProfileName).
-			Msg("unknown import profile, text types mapping won't be available")
+	if loadProfile {
+		metadata, err := ans.readMetadata()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read data import profile: %w", err)
+		}
+		ans.Metadata = metadata
+		prof := FindProfile(metadata.ProfileName)
+		if prof.IsZero() {
+			log.Warn().
+				Str("profile", metadata.ProfileName).
+				Msg("unknown import profile, text types mapping won't be available")
 
-	} else {
-		log.Info().
-			Str("profile", metadata.ProfileName).
-			Int64("corpusSize", metadata.CorpusSize).
-			Int("numLemmas", metadata.NumLemmas).
-			Int("numLemmaFreqs", metadata.NumLemmaFreqs).
-			Int("numCollFreqs", metadata.NumCollFreqs).
-			Msg("loaded dataset metadata")
+		} else {
+			log.Info().
+				Str("profile", metadata.ProfileName).
+				Int64("corpusSize", metadata.CorpusSize).
+				Int("numLemmas", metadata.NumLemmas).
+				Int("numLemmaFreqs", metadata.NumLemmaFreqs).
+				Int("numCollFreqs", metadata.NumCollFreqs).
+				Msg("loaded dataset metadata")
+		}
+		ans.textTypes = prof.TextTypes
 	}
-	ans.textTypes = prof.TextTypes
 
 	return ans, nil
 }
