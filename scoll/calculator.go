@@ -23,7 +23,6 @@ func (calc *Calculator) GetCollocations(lemma string, options ...func(opts *Calc
 		opts.PoS,
 		opts.TextType,
 		opts.PrefixSearch,
-		opts.CorpusSize,
 		opts.Limit,
 		opts.SortBy,
 		opts.CollocateGroupByPos,

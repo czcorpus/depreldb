@@ -261,16 +261,12 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 func (db *DB) CalculateMeasures(
 	lemma, pos, textType string,
 	lemmaIsPrefix bool,
-	corpusSize int,
 	limit int,
 	sortBy SortingMeasure,
 	collocateGroupByPos, collocateGroupByDeprel, collocateGroupByTextType bool,
 ) ([]Collocation, error) {
 	if limit < 0 {
 		panic("CalculateMeasures - invalid limit value")
-	}
-	if corpusSize < 0 {
-		panic("CalculateMeasures - invalid corpusSize value")
 	}
 	if !sortBy.Validate() {
 		panic("CalculateMeasures - invalid sortBy value")
@@ -325,6 +321,8 @@ func (db *DB) CalculateMeasures(
 	}
 
 	walkthruCache := itemsWalktrhoughCache{db: db}
+	numProcVariants := 0
+	t0 := time.Now()
 
 	err = db.bdb.View(func(txn *badger.Txn) error {
 		for _, lemmaMatch := range variants {
@@ -351,7 +349,7 @@ func (db *DB) CalculateMeasures(
 			it := txn.NewIterator(opts)
 			defer it.Close()
 			numDbItems := 0
-			t00 := time.Now()
+
 			for it.Rewind(); it.Valid(); it.Next() {
 				item := it.Item()
 				key := item.Key()
@@ -393,9 +391,6 @@ func (db *DB) CalculateMeasures(
 				}
 				numDbItems++
 			}
-			fmt.Printf("time to get iterator2: %.2f, numdb: %d\n", time.Since(t00).Seconds(), numDbItems)
-			numVar := 0
-			t0 := time.Now()
 			for _, val := range sumCollFreqs.Iter {
 				lemma2, err := walkthruCache.getLemmaByIDTxn(txn, val.Token2ID)
 				if err != nil {
@@ -405,7 +400,7 @@ func (db *DB) CalculateMeasures(
 				f1 := sumFreqs1.get(val.GroupingKeyLemma1Binary())
 				f2 := sumFreqs2.get(val.GroupingKeyLemma2Binary())
 				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq*f2.Freq))
-				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(corpusSize)) / math.Sqrt(float64(val.Freq))
+				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(db.Metadata.CorpusSize)) / math.Sqrt(float64(val.Freq))
 				results = append(results, Collocation{
 					Lemma: CollMember{
 						Value:  lemmaMatch.Value,
@@ -422,12 +417,8 @@ func (db *DB) CalculateMeasures(
 					TextType:   db.textTypes.RawToReadable(val.TextType),
 					MutualDist: val.AVGDist,
 				})
-				numVar++
+				numProcVariants++
 			}
-			log.Debug().
-				Int("numTried", numVar).
-				Str("elapsed", fmt.Sprintf("%1.2f", time.Since(t0).Seconds())).
-				Msg("tried all the matching collocations")
 		}
 
 		return nil
@@ -449,6 +440,10 @@ func (db *DB) CalculateMeasures(
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	log.Debug().
+		Int("numTried", numProcVariants).
+		Str("procTime", fmt.Sprintf("%1.2f", time.Since(t0).Seconds())).
+		Msg("finished collocation search")
 	return results, err
 }
 
@@ -524,63 +519,4 @@ func (ldr Collocation) AsRow() []any {
 		ldr.formatNum(ldr.LogDice),
 		ldr.formatNum(ldr.MutualDist),
 	}
-}
-
-// --------
-
-func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
-	opts := badger.DefaultOptions(path).
-		// Read-optimized settings for large datasets
-		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
-		WithBlockCacheSize(512 << 20). // 512MB block cache
-		WithIndexCacheSize(256 << 20). // 256MB index cache
-		WithNumMemtables(2).           // Minimal memtables
-		WithNumLevelZeroTables(2).     // Minimal level zero tables
-		WithLogger(&ZerologWrapper{})
-
-	ans := &DB{
-		textTypes: textTypes,
-	}
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open collocations database: %w", err)
-	}
-	ans.bdb = db
-	return ans, nil
-}
-
-func OpenDB(path string) (*DB, error) {
-	opts := badger.DefaultOptions(path).
-		// Read-optimized settings for large datasets
-		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
-		WithBlockCacheSize(512 << 20). // 512MB block cache
-		WithIndexCacheSize(256 << 20). // 256MB index cache
-		WithNumMemtables(2).           // Minimal memtables
-		WithNumLevelZeroTables(2).     // Minimal level zero tables
-		WithLogger(&ZerologWrapper{})
-
-	ans := &DB{}
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open collocations database: %w", err)
-	}
-	ans.bdb = db
-
-	metadata, err := ans.readMetadata()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read data import profile: %w", err)
-	}
-	ans.Metadata = metadata
-	prof := FindProfile(metadata.ProfileName)
-	if prof.IsZero() {
-		log.Warn().
-			Str("profile", metadata.ProfileName).
-			Msg("unknown import profile, text types mapping won't be available")
-
-	} else {
-		log.Info().Str("profile", metadata.ProfileName).Msg("using data import profile")
-	}
-	ans.textTypes = prof.TextTypes
-
-	return ans, nil
 }

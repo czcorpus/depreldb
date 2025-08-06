@@ -56,7 +56,6 @@ func evalREPLCommand(cmd string) srchCommand {
 func main() {
 	limit := flag.Int("limit", 10, "max num. of matching items to show")
 	sortBy := flag.String("sort-by", "tscore", "sorting measure (either tscore or ldice)")
-	corpusSize := flag.Int("corpus-size", 100000000, "max num. of matching items to show")
 	collGroupByPos := flag.Bool("collocate-group-by-pos", false, "if set, then collocates will be split by their PoS")
 	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel value")
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
@@ -131,7 +130,6 @@ func main() {
 		ans, err := scoll.FromDatabase(db).GetCollocations(
 			currCommand.lemma,
 			scoll.WithPoS(currCommand.pos),
-			scoll.WithCorpusSize(*corpusSize),
 			scoll.WithTextType(currCommand.textType),
 			scoll.WithLimit(*limit),
 			scoll.WithSortBy(storage.SortingMeasure(*sortBy)),

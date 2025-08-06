@@ -32,41 +32,6 @@ import (
 	"github.com/tomachalek/vertigo/v6"
 )
 
-// Extractor
-type Extractor struct {
-	lemmaIdx int
-	posIdx   int
-}
-
-func (vf *Extractor) ProcToken(tk *vertigo.Token, line int, err error) error {
-	pos := tk.PosAttrByIndex(vf.posIdx)
-	if pos == "" {
-		fmt.Fprintln(os.Stderr, "WARNING: PoS information not found, line ", line)
-		return nil
-	}
-	if len(pos) > 1 {
-		pos = pos[:1]
-	}
-	value := tk.PosAttrByIndex(vf.lemmaIdx)
-	if value == "" {
-		fmt.Fprintln(os.Stderr, "WARNING: value not found, line ", line)
-		return nil
-	}
-	fmt.Printf("%s_%s ", value, pos)
-	return nil
-}
-
-func (vf *Extractor) ProcStruct(st *vertigo.Structure, line int, err error) error {
-	if st.Name == "s" {
-		fmt.Println()
-	}
-	return nil
-}
-
-func (vf *Extractor) ProcStructClose(st *vertigo.StructureClose, line int, err error) error {
-	return nil
-}
-
 func determineFilesToProc(path string) ([]string, error) {
 	isDir, err := fs.IsDir(path)
 	if err != nil {
@@ -88,33 +53,7 @@ func determineFilesToProc(path string) ([]string, error) {
 	return ans, nil
 }
 
-func run(path string, lemmaIdx, posIdx int) {
-	proc := &Extractor{
-		lemmaIdx: lemmaIdx,
-		posIdx:   posIdx,
-	}
-	ctx := context.Background()
-	files, err := determineFilesToProc(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR: ", err)
-		os.Exit(2)
-	}
-	for _, vertFile := range files {
-		pConf := vertigo.ParserConf{
-			InputFilePath:         vertFile,
-			Encoding:              "utf-8",
-			StructAttrAccumulator: "comb",
-			LogProgressEachNth:    100000,
-		}
-		fmt.Fprintf(os.Stderr, "Starting to process file %s\n-------------------\n", vertFile)
-		if parserErr := vertigo.ParseVerticalFile(ctx, &pConf, proc); parserErr != nil {
-			fmt.Fprintln(os.Stderr, "ERROR: ", parserErr)
-			os.Exit(3)
-		}
-	}
-}
-
-func runSyntax(path, dbPath string, prof storage.Profile, minFreq int, verbose bool) {
+func runCommand(path, dbPath string, prof storage.Profile, minFreq int, verbose bool) {
 	var db *storage.DB
 	var err error
 
@@ -205,7 +144,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "w2vprep - Prepare data for word2vec/wang2vec processing	.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [options] [vert_path] [db_path]\n\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(
-			os.Stderr, "Typical usage:\n  %s -import-profile intercorp_v16ud -syntax-mode -min-freq 10 [vert_path] [db_path]\n\n", filepath.Base(os.Args[0]))
+			os.Stderr, "Typical usage:\n  %s -import-profile intercorp_v16ud -min-freq 10 [vert_path] [db_path]\n\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
@@ -213,8 +152,7 @@ func main() {
 	posIdx := flag.Int("pos-idx", 5, "vertical file column position where PoS is located (overrides importProfile)")
 	parentIdx := flag.Int("parent-idx", 12, "vertical file column position where syntactic parent info is stored (overrides importProfile)")
 	deprelIdx := flag.Int("deprel-idx", 11, "vertical file column position where syntactic function is stored (overrides importProfile)")
-	iProfile := flag.String("import-profile", "", "select a predefined lemma-idx, pos-idx etc. values based on corpus name")
-	syntaxMode := flag.Bool("syntax-mode", true, "switch extraction to syntactic variant")
+	iProfile := flag.String("import-profile", "", "select a predefined lemma-idx, pos-idx etc. based on corpus name (e.g. intercorp_v16ud)")
 	verbose := flag.Bool("verbose", true, "print more info about program activity")
 	minFreq := flag.Int("min-freq", 20, "minimal freq. of collocates to be accepted")
 	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
@@ -224,27 +162,23 @@ func main() {
 		Level: logging.LogLevel(*logLevel),
 	})
 
-	if *syntaxMode {
-		var cprof storage.Profile
-		if *iProfile != "" {
-			cprof = storage.FindProfile(*iProfile)
-			if cprof.IsZero() {
-				fmt.Fprintf(os.Stderr, "import profile %s not found", *iProfile)
-				os.Exit(1)
-			}
-			fmt.Fprintf(os.Stderr, "Using import profile %s\n", *iProfile)
-
-		} else {
-			cprof = storage.Profile{
-				LemmaIdx:  *lemmaIdx,
-				PosIdx:    *posIdx,
-				ParentIdx: *parentIdx,
-				DeprelIdx: *deprelIdx,
-			}
+	var cprof storage.Profile
+	if *iProfile != "" {
+		cprof = storage.FindProfile(*iProfile)
+		if cprof.IsZero() {
+			fmt.Fprintf(os.Stderr, "import profile %s not found", *iProfile)
+			os.Exit(1)
 		}
-		runSyntax(flag.Arg(0), flag.Arg(1), cprof, *minFreq, *verbose)
+		fmt.Fprintf(os.Stderr, "Using import profile %s\n", *iProfile)
 
 	} else {
-		run(flag.Arg(0), *lemmaIdx, *posIdx)
+		cprof = storage.Profile{
+			LemmaIdx:  *lemmaIdx,
+			PosIdx:    *posIdx,
+			ParentIdx: *parentIdx,
+			DeprelIdx: *deprelIdx,
+		}
 	}
+	runCommand(flag.Arg(0), flag.Arg(1), cprof, *minFreq, *verbose)
+
 }
