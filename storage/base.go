@@ -93,7 +93,10 @@ func (db *DB) readMetadata() (Metadata, error) {
 
 // --------
 
-func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
+// OpenDBIgnoreMetadata opens a BadgerDB database but does not try
+// to fetch index metadata from it. It is suitable e.g. for creating
+// new databases or rewriting existing ones.
+func OpenDBIgnoreMetadata(path string, textTypes record.TextTypeMapper) (*DB, error) {
 	db, err := openDB(path, false)
 	if err != nil {
 		return nil, err
@@ -105,6 +108,9 @@ func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*D
 	return db, nil
 }
 
+// OpenDB opens a BadgerDB database with collocations indexes.
+// The database must have proper metadata set as otherwise, it won't open.
+// For creating a new db, use OpenDBIgnoreMetadata
 func OpenDB(path string) (*DB, error) {
 	return openDB(path, true)
 }
