@@ -57,8 +57,9 @@ func main() {
 	limit := flag.Int("limit", 10, "max num. of matching items to show")
 	sortBy := flag.String("sort-by", "tscore", "sorting measure (either tscore or ldice)")
 	collGroupByPos := flag.Bool("collocate-group-by-pos", false, "if set, then collocates will be split by their PoS")
-	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel value")
+	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel variants")
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
+	lemmaGroupByDeprel := flag.Bool("lemma-group-by-deprel", false, "if set, then searched lemma will be split by its Deprel variants")
 	jsonOut := flag.Bool("json-out", false, "if set then JSON format will be used to print results")
 	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
 	repl := flag.Bool("repl", false, "if set, then the search will run in an infinite read-eval-print loop (until Ctrl+C is pressed)")
@@ -79,17 +80,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ERROR: ", err)
 		os.Exit(1)
 	}
-	gbPos := func(opts *scoll.CalculationOptions) {}
+	gbPos := scoll.WithNOP()
 	if *collGroupByPos {
 		gbPos = scoll.WithCollocateGroupByPos()
 	}
-	gbDeprel := func(opts *scoll.CalculationOptions) {}
+	gbDeprel := scoll.WithNOP()
 	if *collGroupByDeprel {
 		gbDeprel = scoll.WithCollocateGroupByDeprel()
 	}
-	gbTT := func(opts *scoll.CalculationOptions) {}
+	gbTT := scoll.WithNOP()
 	if *collGroupByTT {
 		gbTT = scoll.WithCollocateGroupByTextType()
+	}
+
+	gbLPos := scoll.WithNOP()
+	if *lemmaGroupByDeprel {
+		gbLPos = scoll.WithLemmaGroupByDeprel()
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -136,6 +142,7 @@ func main() {
 			gbPos,
 			gbDeprel,
 			gbTT,
+			gbLPos,
 		)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR: ", err)

@@ -266,7 +266,7 @@ type SearchFilter func(pos1 byte, deprel1 byte, pos2 byte, deprel2 byte, textTyp
 // note: for more convenient access, use scoll.Calculator
 func (db *DB) CalculateMeasures(
 	lemma, pos, textType string,
-	lemmaIsPrefix bool,
+	lemmaIsPrefix, lemmaGroupByDeprel bool,
 	limit int,
 	sortBy SortingMeasure,
 	collocateGroupByPos, collocateGroupByDeprel, collocateGroupByTextType bool,
@@ -325,6 +325,11 @@ func (db *DB) CalculateMeasures(
 	if collocateGroupByPos {
 		sumFreqs2.GroupByPos()
 		sumCollFreqs.GroupByPos2()
+	}
+
+	if lemmaGroupByDeprel {
+		sumFreqs1.GroupByDeprel()
+		sumCollFreqs.GroupByDeprel1()
 	}
 
 	walkthruCache := itemsWalktrhoughCache{db: db}

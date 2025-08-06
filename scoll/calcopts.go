@@ -44,6 +44,7 @@ type CalculationOptions struct {
 	CollocateGroupByPos      bool
 	CollocateGroupByDeprel   bool
 	CollocateGroupByTextType bool
+	LemmaGroupByDeprel       bool
 	PredefinedSearch         PredefinedSearch
 }
 
@@ -95,8 +96,22 @@ func WithCollocateGroupByTextType() func(opts *CalculationOptions) {
 	}
 }
 
+func WithLemmaGroupByDeprel() func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
+		opts.LemmaGroupByDeprel = true
+	}
+}
+
 func WithPredefinedSearch(srch PredefinedSearch) func(opts *CalculationOptions) {
 	return func(opts *CalculationOptions) {
 		opts.PredefinedSearch = srch
+	}
+}
+
+// WithNOP is a convenience function which sets no option and
+// can be used as an alternative to boolean With... functions
+// with no argument.
+func WithNOP() func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
 	}
 }

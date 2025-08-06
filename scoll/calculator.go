@@ -66,6 +66,7 @@ func (calc *Calculator) GetCollocations(lemma string, options ...func(opts *Calc
 		opts.PoS,
 		opts.TextType,
 		opts.PrefixSearch,
+		opts.LemmaGroupByDeprel,
 		opts.Limit,
 		opts.SortBy,
 		opts.CollocateGroupByPos,
