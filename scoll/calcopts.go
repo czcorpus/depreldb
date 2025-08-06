@@ -6,7 +6,6 @@ type CalculationOptions struct {
 	PrefixSearch             bool
 	PoS                      string
 	TextType                 string
-	CorpusSize               int
 	Limit                    int
 	SortBy                   storage.SortingMeasure
 	CollocateGroupByPos      bool
@@ -23,12 +22,6 @@ func WithPoS(pos string) func(opts *CalculationOptions) {
 func WithTextType(tt string) func(opts *CalculationOptions) {
 	return func(opts *CalculationOptions) {
 		opts.TextType = tt
-	}
-}
-
-func WithCorpusSize(size int) func(opts *CalculationOptions) {
-	return func(opts *CalculationOptions) {
-		opts.CorpusSize = size
 	}
 }
 

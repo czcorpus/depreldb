@@ -22,6 +22,7 @@ import (
 
 	"github.com/czcorpus/scollector/record"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/rs/zerolog/log"
 )
 
 // -----
@@ -88,4 +89,60 @@ func (db *DB) readMetadata() (Metadata, error) {
 		return result, fmt.Errorf("failed to store profile: %w", err)
 	}
 	return result, nil
+}
+
+// --------
+
+func OpenDBWithCustomTTMapping(path string, textTypes record.TextTypeMapper) (*DB, error) {
+	db, err := OpenDB(path)
+	if err != nil {
+		return nil, err
+	}
+	db.textTypes = textTypes
+	log.Info().
+		Str("dbPath", path).
+		Msg("setting custom text types for opened database")
+	return db, nil
+}
+
+func OpenDB(path string) (*DB, error) {
+	opts := badger.DefaultOptions(path).
+		// Read-optimized settings for large datasets
+		WithValueLogFileSize(1 << 30). // 1GB value log files for better compression
+		WithBlockCacheSize(512 << 20). // 512MB block cache
+		WithIndexCacheSize(256 << 20). // 256MB index cache
+		WithNumMemtables(2).           // Minimal memtables
+		WithNumLevelZeroTables(2).     // Minimal level zero tables
+		WithLogger(&ZerologWrapper{})
+
+	ans := &DB{}
+	db, err := badger.Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open collocations database: %w", err)
+	}
+	ans.bdb = db
+
+	metadata, err := ans.readMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read data import profile: %w", err)
+	}
+	ans.Metadata = metadata
+	prof := FindProfile(metadata.ProfileName)
+	if prof.IsZero() {
+		log.Warn().
+			Str("profile", metadata.ProfileName).
+			Msg("unknown import profile, text types mapping won't be available")
+
+	} else {
+		log.Info().
+			Str("profile", metadata.ProfileName).
+			Int64("corpusSize", metadata.CorpusSize).
+			Int("numLemmas", metadata.NumLemmas).
+			Int("numLemmaFreqs", metadata.NumLemmaFreqs).
+			Int("numCollFreqs", metadata.NumCollFreqs).
+			Msg("loaded dataset metadata")
+	}
+	ans.textTypes = prof.TextTypes
+
+	return ans, nil
 }
