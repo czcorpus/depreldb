@@ -66,7 +66,7 @@ func runCommand(path, dbPath string, prof storage.Profile, minFreq int, verbose 
 			prof.TextTypesAttr,
 			prof.TextTypes,
 		)
-		db, err = storage.OpenDBWithCustomTTMapping(dbPath, prof.TextTypes)
+		db, err = storage.OpenDBIgnoreMetadata(dbPath, prof.TextTypes)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR: ", err)
 			os.Exit(2)
