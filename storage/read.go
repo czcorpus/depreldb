@@ -254,6 +254,12 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 	return ans, nil
 }
 
+// ------
+
+type SearchFilter func(pos1 byte, deprel1 byte, pos2 byte, deprel2 byte, textType byte) bool
+
+// ------
+
 // CalculateMeasures searches for all the matching collocates and calculates
 // their Log-Dice and T-Score in collocations with the searched 'lemma'.
 //
@@ -264,6 +270,7 @@ func (db *DB) CalculateMeasures(
 	limit int,
 	sortBy SortingMeasure,
 	collocateGroupByPos, collocateGroupByDeprel, collocateGroupByTextType bool,
+	customFilter SearchFilter,
 ) ([]Collocation, error) {
 	if limit < 0 {
 		panic("CalculateMeasures - invalid limit value")
@@ -354,6 +361,11 @@ func (db *DB) CalculateMeasures(
 				item := it.Item()
 				key := item.Key()
 				decKey := record.DecodeCollFreqKey(key)
+
+				if customFilter != nil && !customFilter(
+					decKey.Pos1, decKey.Deprel1, decKey.Pos2, decKey.Deprel2, decKey.TextType) {
+					continue
+				}
 
 				var collValue record.CollocValue
 				// Get F(x,y) frequency information
