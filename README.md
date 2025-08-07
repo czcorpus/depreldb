@@ -79,7 +79,6 @@ Before searching, you need to import linguistic data into the database using the
 - `-parent-idx=12` - Column position of syntactic parent info (default: 12)
 - `-deprel-idx=11` - Column position of dependency relation (default: 11)
 - `-min-freq=20` - Minimal frequency of collocates to accept (default: 20)
-- `-syntax-mode` - Enable syntactic variant extraction (default: true)
 - `-verbose` - Print detailed activity information (default: true)
 - `-log-level=info` - Set logging level (debug, info, warn, error)
 
@@ -104,15 +103,14 @@ Before searching, you need to import linguistic data into the database using the
 
 ### Command Line Options
 
-- `-limit=10` - Maximum number of matching items to show (default: 10)
-- `-sort-by=tscore` - Sorting measure: `tscore` or `ldice` (default: tscore)
-- `-corpus-size=100000000` - Corpus size for statistical calculations (default: 100,000,000)
+- `-limit` - Maximum number of matching items to show (default: 10)
+- `-sort-by` - Sorting measure: `tscore` or `ldice` (default: tscore)
 - `-collocate-group-by-pos` - Group collocates by their POS tags
 - `-collocate-group-by-deprel` - Group collocates by their dependency relations
 - `-collocate-group-by-tt` - Group collocates by their text type
 - `-json-out` - Output results in JSON format instead of tabular format
 - `-repl` - Run in interactive read-eval-print loop mode (exit with CTRL+C)
-- `-log-level=info` - Set logging level (debug, info, warn, error)
+- `-log-level` - Set logging level (debug, info, warn, error, default = info)
 
 ### Examples
 
@@ -138,17 +136,37 @@ Before searching, you need to import linguistic data into the database using the
 
 ## Output Format
 
+
 ### Tabular Output (default)
 ```
-registry    lemma    lemma props.    collocate    collocate props    T-Score    Log-Dice    mutual dist.
-══════════════════════════════════════════════════════════════════════════════════════════════════════
--           run      (root, VERB)    fast         (amod, ADJ)        12.45      8.23        1.2
--           run      (root, VERB)    quickly      (advmod, ADV)      10.33      7.89        1.5
+registry  lemma      lemma props.   collocate   collocate props  T-Score  Log-Dice  mutual dist.
+════════  ═════      ════════════   ═════════   ═══════════════  ═══════  ════════  ════════════
+-         education  (nmod, -)      of          (-)               45.78    11.29     1.10
+-         education  (obj, -)       a           (-)               29.17    9.62      1.10
+-         education  (obj, -)       have        (-)               27.51    8.75     -1.00
+-         education  (nmod, -)      training    (-)               27.11    9.00      2.00
 ```
 
 ### JSON Output (`-json-out`)
 ```json
-{"lemma":{"value":"run","pos":"VERB","deprel":"root"},"collocate":{"value":"fast","pos":"ADJ","deprel":"amod"},"logDice":8.23,"tScore":12.45,"mutualDist":1.2,"textType":""}
+{
+  "lemma":{
+    "value":"education",
+    "pos":"",
+    "deprel":"nmod"
+  },
+  "collocate":{
+    "value":"of",
+    "pos":"",
+    "deprel":""
+  },
+  "logDice":11.288589164037905,
+  "tScore":45.78209118543305,
+  "mutualDist":1.1,
+  "textType":""
+}
+// etc...
+
 ```
 
 ## Statistical Measures
@@ -176,7 +194,7 @@ Scollector uses BadgerDB with highly optimized binary encoding for maximum perfo
 
 ### Storage Format
 - **Binary encoding**: Custom 5-byte format
-- **Compact keys**: Binary keys instead of strings for efficient grouping operations
+- **Compact keys**: Binary keys for efficient grouping operations
 - **Read-optimized**: Large block cache (512MB) and index cache (256MB) for fast queries
 - **Distance encoding**: 1-byte encoding for syntactic distances with 0.1 precision (-12.7 to +12.7)
 
@@ -242,11 +260,12 @@ Scollector implements several high-performance optimizations:
 ```
 scollector/
 ├── cmd/
+│   └── mkscolldb/       # An utility for importing corpus vertical files
 │   └── search/          # Search command-line interface with REPL mode
 ├── record/              # Data structures, binary encoding, and key generation
-├── storage/             # BadgerDB storage layer with performance optimizations
-├── scoll/               # Collocation calculation logic
-└── dataimport/          # Data import utilities (if available)
+├── storage/             # BadgerDB storage layer
+├── scoll/               # High level interface for collocations search
+└── dataimport/          # Data import logic
 ```
 
 ### Running Tests
@@ -259,20 +278,4 @@ go test ./...
 go test ./storage -v
 go test ./record -v
 ```
-
-### Key Components
-
-- **Storage Layer** (`storage/`): BadgerDB wrapper with read-optimized configurations and binary encoding
-- **Record Types** (`record/`): Binary data structures, custom encoding functions, and high-performance key generation
-- **Calculator** (`scoll/`): Statistical measure calculations with optimized grouping algorithms
-- **Search CLI** (`cmd/search/`): Command-line interface with interactive REPL mode and CTRL+C support
-- **Data Import** (`dataimport/`): Utilities for processing vertical format linguistic data (if available)
-
-## Universal Dependencies Support
-
-Scollector fully supports Universal Dependencies v2 standards:
-
-- **POS Tags**: All 17 universal POS tags (ADJ, ADP, ADV, AUX, etc.)
-- **Dependency Relations**: Complete set of UD relations (nsubj, obj, amod, etc.)
-- **Efficient Encoding**: Byte-level encoding for compact storage
 
