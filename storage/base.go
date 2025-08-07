@@ -76,7 +76,7 @@ func (db *DB) StoreMetadata(data Metadata) error {
 func (db *DB) readMetadata() (Metadata, error) {
 	k := record.CreateMetadataKey(record.MetadataKeyImportProfile)
 	var result Metadata
-	if err := db.bdb.View(func(txn *badger.Txn) error {
+	err := db.bdb.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(k)
 		if err != nil {
 			return err
@@ -85,8 +85,12 @@ func (db *DB) readMetadata() (Metadata, error) {
 			return json.Unmarshal(val, &result)
 		})
 		return nil
-	}); err != nil {
-		return result, fmt.Errorf("failed get profile: %w", err)
+	})
+	if err == badger.ErrKeyNotFound {
+		return result, fmt.Errorf("no metadata found, possibly empty or unsupported database")
+	}
+	if err != nil {
+		return result, fmt.Errorf("failed to read metadata entry: %w", err)
 	}
 	return result, nil
 }
