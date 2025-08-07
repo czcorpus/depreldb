@@ -367,6 +367,9 @@ func (db *DB) CalculateMeasures(
 				key := item.Key()
 				decKey := record.DecodeCollFreqKey(key)
 
+				if ttID > 0 && decKey.TextType != ttID {
+					continue
+				}
 				if customFilter != nil && !customFilter(
 					decKey.Pos1, decKey.Deprel1, decKey.Pos2, decKey.Deprel2, decKey.TextType) {
 					continue
