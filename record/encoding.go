@@ -123,7 +123,7 @@ func AllCollFreqsOfToken(tokenID uint32) []byte {
 // For generating search keys, use TokenFreqSearchKey which generates
 // proper key prefix in case you provide zero pos, textType or deprel.
 func TokenFreqKey(tokenID uint32, pos, textType byte, deprel uint16) []byte {
-	key := make([]byte, 9)
+	key := make([]byte, 1+4+1+1+2)
 	key[0] = singleTokenPrefix
 	binary.LittleEndian.PutUint32(key[1:5], tokenID)
 	key[5] = pos

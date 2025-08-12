@@ -1,13 +1,13 @@
 # Scollector
 
-A high-performance Go-based collocation extraction and search tool for linguistic analysis. Scollector processes linguistic data to calculate statistical measures like T-Score and Log-Dice for finding meaningful syntactic collocations between lemmas.
+A high-performance Go-based **collocation extraction and search tool** for linguistic analysis. Scollector processes linguistic data to calculate statistical measures like T-Score, Log-Dice, and LMI (Local Mutual Information) for finding meaningful syntactic collocations between lemmas.
 
 ## Features
 
-- **Ultra-fast collocation search** using BadgerDB with optimized read-only configurations
+- **Fast collocation search** using BadgerDB with optimized read-only configurations
 - **High-performance storage**:
   - **memory-efficient** binary key encoding and optimized grouping algorithms
-- **Statistical measures**: T-Score and Log-Dice calculations
+- **Statistical measures**: T-Score, Log-Dice, and LMI calculations with Reciprocal Rank Fusion (RRF) scoring
 - **Universal Dependencies support**: Full integration with UD POS tags and dependency relations
 - **Flexible querying**: Filter by lemma, POS tags, dependency relations, and text types
 - **Multiple output formats**: Tabular display or JSON output
@@ -60,6 +60,7 @@ Each profile specifies:
 - Dependency relation column position
 - Syntactic parent column position
 - Text type mappings
+- Custom deprel values
 
 ## Usage
 
@@ -104,7 +105,7 @@ Before searching, you need to import linguistic data into the database using the
 ### Command Line Options
 
 - `-limit` - Maximum number of matching items to show (default: 10)
-- `-sort-by` - Sorting measure: `tscore` or `ldice` (default: tscore)
+- `-sort-by` - Sorting measure: `tscore`, `ldice`, `lmi`, or `rrf` (default: rrf)
 - `-collocate-group-by-pos` - Group collocates by their POS tags
 - `-collocate-group-by-deprel` - Group collocates by their dependency relations
 - `-collocate-group-by-tt` - Group collocates by their text type
@@ -124,6 +125,12 @@ Before searching, you need to import linguistic data into the database using the
 # Search with custom limits and sorting
 ./search -limit=20 -sort-by=ldice /path/to/database.db run VERB
 
+# Search using LMI measure
+./search -sort-by=lmi /path/to/database.db run VERB
+
+# Search using RRF (default) - combines all measures
+./search -sort-by=rrf /path/to/database.db run VERB
+
 # JSON output for programmatic processing
 ./search -json-out /path/to/database.db run VERB
 
@@ -139,12 +146,12 @@ Before searching, you need to import linguistic data into the database using the
 
 ### Tabular Output (default)
 ```
-registry  lemma      lemma props.   collocate   collocate props  T-Score  Log-Dice  mutual dist.
-════════  ═════      ════════════   ═════════   ═══════════════  ═══════  ════════  ════════════
--         education  (nmod, -)      of          (-)               45.78    11.29     1.10
--         education  (obj, -)       a           (-)               29.17    9.62      1.10
--         education  (obj, -)       have        (-)               27.51    8.75     -1.00
--         education  (nmod, -)      training    (-)               27.11    9.00      2.00
+registry  lemma      lemma props.   collocate   collocate props  T-Score  Log-Dice  LMI     RRF Score  mutual dist.
+════════  ═════      ════════════   ═════════   ═══════════════  ═══════  ════════  ══════  ═════════  ════════════
+-         education  (nmod, -)      of          (-)               45.78    11.29     245.67  0.0821     1.10
+-         education  (obj, -)       a           (-)               29.17    9.62      178.43  0.0734     1.10
+-         education  (obj, -)       have        (-)               27.51    8.75      156.92  0.0687    -1.00
+-         education  (nmod, -)      training    (-)               27.11    9.00      163.45  0.0701     2.00
 ```
 
 ### JSON Output (`-json-out`)
@@ -160,8 +167,10 @@ registry  lemma      lemma props.   collocate   collocate props  T-Score  Log-Di
     "pos":"",
     "deprel":""
   },
-  "logDice":11.288589164037905,
-  "tScore":45.78209118543305,
+  "logDice":11.28,
+  "tScore":45.78,
+  "lmi":245.67,
+  "rrfScore":0.0821,
   "mutualDist":1.1,
   "textType":""
 }
@@ -172,16 +181,33 @@ registry  lemma      lemma props.   collocate   collocate props  T-Score  Log-Di
 ## Statistical Measures
 
 ### T-Score
+
 Measures the confidence of word association:
 ```
 T-Score = (F(x,y) - F(x)*F(y)/N) / √F(x,y)
 ```
 
 ### Log-Dice
+
 Measures the strength of association between words:
 ```
 Log-Dice = 14.0 + log₂(2*F(x,y)/(F(x)+F(y)))
 ```
+
+### LMI (Local Mutual Information)
+
+Measures pointwise mutual information weighted by co-occurrence frequency:
+```
+LMI = F(x,y) * log₂(N * F(x,y) / (F(x) * F(y)))
+```
+
+### RRF (Reciprocal Rank Fusion)
+
+Combines rankings from T-Score, Log-Dice, and LMI using reciprocal rank fusion for better overall ranking:
+```
+RRF_score = Σ(1 / (k + rank_i))
+```
+where k=60 (RRF constant) and rank_i is the rank in each individual measure.
 
 Where:
 - `F(x,y)` = frequency of co-occurrence
@@ -192,66 +218,21 @@ Where:
 
 Scollector uses BadgerDB with highly optimized binary encoding for maximum performance:
 
-### Storage Format
-- **Binary encoding**: Custom 5-byte format
-- **Compact keys**: Binary keys for efficient grouping operations
+- **Binary encoding**: collocation entries encoded in 16 bytes long keys (9 bytes for single lemma frequencies)
+- **Frequency and node distance encoded in DB values**
+- - 4 bytes for **frequency**, 1 byte for **distance encoding** (0.1 precision; values from -12.7 to +12.7)
+- **Efficient result grouping operations** - based on binary keys
 - **Read-optimized**: Large block cache (512MB) and index cache (256MB) for fast queries
-- **Distance encoding**: 1-byte encoding for syntactic distances with 0.1 precision (-12.7 to +12.7)
+
 
 ### Key Types
 - **Metadata**: `0x01 + keyID` → JSON metadata (import profile, corpus info)
-- **Lemma to ID**: `0x02 + lemma` → `tokenID` (4 bytes)
-- **Reverse index**: `0x03 + tokenID` → `lemma` (string)
-- **Token frequency**: `0x04 + tokenID + pos + textType + deprel` → `freq` (4 bytes)
-- **Collocation frequency**: `0x05 + [composite key]` → `freq + distance` (5 bytes)
+- **Lemma to ID**: `0x02 + lemma` → `tokenID`
+- **Reverse index**: `0x03 + tokenID` → `lemma`
+- **Token frequency**: `0x04 + tokenID + pos + textType + deprel` → `freq`
+- **Collocation frequency**: `0x05 + [composite key]` → `freq + distance`
 
-### Data Structures
 
-#### TokenFreq
-Single token frequency with linguistic metadata:
-```go
-type TokenFreq struct {
-    Lemma    string
-    PoS      UDPoS      // Universal Dependencies POS
-    Deprel   UDDeprel   // Universal Dependencies relation
-    Freq     int
-    TextType TextType
-}
-```
-
-#### CollocFreq
-Collocation frequency between two tokens:
-```go
-type CollocFreq struct {
-    Lemma1, Lemma2   string
-    PoS1, PoS2       UDPoS
-    Deprel1, Deprel2 UDDeprel
-    Freq             int
-    AVGDist          float32  // Average distance between tokens
-    TextType         TextType
-}
-```
-
-## Performance Optimizations
-
-Scollector implements several high-performance optimizations:
-
-### Binary Encoding
-- **5-byte collocation values**: `freq (4 bytes) + distance (1 byte)` vs 10-15 bytes with Protocol Buffers
-- **4-byte token values**: Direct uint32 encoding vs Protocol Buffer overhead
-- **Distance compression**: Float64 distances compressed to single byte with 0.1 precision
-
-### Binary Keys
-- **8-byte token keys**: `[TokenID:4][PoS:1][Deprel:1][TextType:1][padding:1]`
-- **16-byte collocation keys**: Two token keys combined for full collocation grouping
-- **Zero heap allocations**: Stack-allocated array keys vs string concatenation
-- **50%+ performance improvement** in grouping operations
-
-### Database Configuration
-- **Read-only mode**: Eliminates write locks and journal overhead
-- **Large caches**: 512MB block cache + 256MB index cache for hot data
-- **Optimized BadgerDB settings**: 1GB value logs, minimal memtables
-- **Intelligent caching**: Multi-level caching for frequently accessed tokens during result collection
 
 ## Development
 
