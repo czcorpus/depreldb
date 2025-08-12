@@ -25,7 +25,7 @@ import (
 type RawTokenFreq struct {
 	TokenID  uint32
 	PoS      byte
-	Deprel   byte
+	Deprel   uint16
 	Freq     uint32
 	TextType byte
 }
@@ -34,14 +34,13 @@ type RawTokenFreq struct {
 type BinaryKey [8]byte
 
 // GroupingKeyBinary creates a binary key (8 bytes) instead of string key
-// Layout: [TokenID:4][PoS:1][Deprel:1][TextType:1][padding:1]
+// Layout: [TokenID:4][PoS:1][Deprel:2][TextType:1][padding:1]
 func (rtf RawTokenFreq) GroupingKeyBinary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rtf.TokenID)
 	key[4] = rtf.PoS
-	key[5] = rtf.Deprel
-	key[6] = rtf.TextType
-	// key[7] is padding/unused
+	binary.LittleEndian.PutUint16(key[5:7], rtf.Deprel)
+	key[7] = rtf.TextType
 	return key
 }
 
@@ -70,8 +69,7 @@ func (rtf RawTokenFreq) GroupingKeyOptimized() string {
 	keyBuff.WriteByte(hexChar(rtf.PoS >> 4))
 	keyBuff.WriteByte(hexChar(rtf.PoS & 0xF))
 	keyBuff.WriteByte('|')
-	keyBuff.WriteByte(hexChar(rtf.Deprel >> 4))
-	keyBuff.WriteByte(hexChar(rtf.Deprel & 0xF))
+	keyBuff.WriteString(uitoa(uint64(rtf.Deprel)))
 	keyBuff.WriteByte('|')
 	keyBuff.WriteByte(hexChar(rtf.TextType >> 4))
 	keyBuff.WriteByte(hexChar(rtf.TextType & 0xF))
@@ -83,10 +81,10 @@ func (rtf RawTokenFreq) GroupingKeyOptimized() string {
 type RawCollocFreq struct {
 	Token1ID uint32
 	PoS1     byte
-	Deprel1  byte
+	Deprel1  uint16
 	Token2ID uint32
 	PoS2     byte
-	Deprel2  byte
+	Deprel2  uint16
 	Freq     uint32
 	AVGDist  float64
 	TextType byte
@@ -101,12 +99,12 @@ func (rcf RawCollocFreq) GroupingKeyBinary() CollBinaryKey {
 	var key CollBinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rcf.Token1ID)
 	key[4] = rcf.PoS1
-	key[5] = rcf.Deprel1
-	binary.LittleEndian.PutUint32(key[6:10], rcf.Token2ID)
-	key[10] = rcf.PoS2
-	key[11] = rcf.Deprel2
-	key[12] = rcf.TextType
-	// key[13:16] are padding/unused
+	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel1)
+	binary.LittleEndian.PutUint32(key[7:11], rcf.Token2ID)
+	key[11] = rcf.PoS2
+	binary.LittleEndian.PutUint16(key[12:14], rcf.Deprel1)
+	key[14] = rcf.TextType
+	// key[15] is padding/unused
 	return key
 }
 
@@ -115,9 +113,8 @@ func (rcf RawCollocFreq) GroupingKeyLemma1Binary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rcf.Token1ID)
 	key[4] = rcf.PoS1
-	key[5] = rcf.Deprel1
-	key[6] = rcf.TextType
-	// key[7] is padding/unused
+	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel1)
+	key[7] = rcf.TextType
 	return key
 }
 
@@ -126,9 +123,8 @@ func (rcf RawCollocFreq) GroupingKeyLemma2Binary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rcf.Token2ID)
 	key[4] = rcf.PoS2
-	key[5] = rcf.Deprel2
-	key[6] = rcf.TextType
-	// key[7] is padding/unused
+	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel2)
+	key[7] = rcf.TextType
 	return key
 }
 

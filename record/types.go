@@ -22,14 +22,14 @@ import (
 
 type UDDeprel struct {
 	Readable string
-	Raw      byte
+	Raw      uint16
 }
 
 func (d UDDeprel) IsValid() bool {
-	return d.Raw >= 0x01 && d.Raw <= 0x30
+	return d.Raw >= 0x01
 }
 
-func (d UDDeprel) Byte() byte {
+func (d UDDeprel) AsUint16() uint16 {
 	return d.Raw
 }
 
@@ -42,14 +42,14 @@ func (d UDDeprel) AsUint32() uint32 {
 }
 
 func ImportUDDeprel(v string) UDDeprel {
-	repr, ok := UDDeprelMapping[strings.ToLower(v)]
+	repr, ok := UDDeprelMapping.Get(strings.ToLower(v))
 	if !ok {
 		return UDDeprel{Raw: 0x00, Readable: v}
 	}
-	return UDDeprel{Raw: repr, Readable: v}
+	return UDDeprel{Raw: uint16(repr), Readable: v}
 }
 
-func UDDeprelFromByte(v byte) UDDeprel {
+func UDDeprelFromUint16(v uint16) UDDeprel {
 	readable := UDDeprelMapping.GetRev(v)
 	if readable != "" {
 		return UDDeprel{Raw: v, Readable: readable}
@@ -70,10 +70,6 @@ func (pos UDPoS) Byte() byte {
 
 func (pos UDPoS) String() string {
 	return pos.Readable
-}
-
-func (pos UDPoS) AsUint32() uint32 {
-	return uint32(pos.Raw)
 }
 
 func (pos UDPoS) IsValid() bool {

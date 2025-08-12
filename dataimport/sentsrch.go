@@ -39,10 +39,12 @@ type Searcher struct {
 	lastSentEndIdx   int
 	foundNewSent     bool
 	lemmaIdx         int
+	posIdx           int
 	parentIdx        int
 	deprelIdx        int
 	freqs            FreqsCollector
 	corpusSize       int64
+	extendedDeprels  *collections.Set[string]
 }
 
 func (vf *Searcher) analyzeLastSent() {
@@ -59,7 +61,14 @@ func (vf *Searcher) analyzeLastSent() {
 			sentOpen = false
 			if len(sent) > 0 {
 				vf.corpusSize += int64(len(sent))
-				branches := findPathsToRoot(sent, vf.parentIdx, vf.deprelIdx)
+				branches := findPathsToRoot(
+					sent,
+					vf.lemmaIdx,
+					vf.posIdx,
+					vf.parentIdx,
+					vf.deprelIdx,
+					vf.extendedDeprels,
+				)
 				for _, b := range branches {
 					vf.freqs.ImportSentence(b)
 				}
@@ -96,16 +105,22 @@ func (vf *Searcher) ImportedCorpusSize() int64 {
 	return vf.corpusSize
 }
 
+func (vf *Searcher) CollectedDeprels() []string {
+	return vf.extendedDeprels.ToSlice()
+}
+
 func NewSearcher(
-	size int,
-	lemmaIdx, parentAttrIdx, deprelAttrIdx int,
+	maxSentSize int,
+	lemmaIdx, posIdx, parentAttrIdx, deprelAttrIdx int,
 	freqs FreqsCollector,
 ) *Searcher {
 	return &Searcher{
-		prevTokens: collections.NewCircularList[*vertigo.Token](size),
-		lemmaIdx:   lemmaIdx,
-		parentIdx:  parentAttrIdx,
-		deprelIdx:  deprelAttrIdx,
-		freqs:      freqs,
+		prevTokens:      collections.NewCircularList[*vertigo.Token](maxSentSize),
+		lemmaIdx:        lemmaIdx,
+		posIdx:          posIdx,
+		parentIdx:       parentAttrIdx,
+		deprelIdx:       deprelAttrIdx,
+		freqs:           freqs,
+		extendedDeprels: collections.NewSet[string](),
 	}
 }

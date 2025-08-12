@@ -17,7 +17,9 @@
 package storage
 
 import (
+	"crypto/sha1"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -33,12 +35,14 @@ import (
 const (
 	sortByLogDice SortingMeasure = "ldice"
 	sortByTScore  SortingMeasure = "tscore"
+	sortByLMI     SortingMeasure = "lmi"
+	sortByRRF     SortingMeasure = "rrf"
 )
 
 type SortingMeasure string
 
 func (m SortingMeasure) Validate() bool {
-	return m == sortByLogDice || m == sortByTScore
+	return m == sortByLogDice || m == sortByTScore || m == sortByLMI || m == sortByRRF
 }
 
 // -------
@@ -65,7 +69,7 @@ func (clm *itemsWalktrhoughCache) getLemmaByIDTxn(txn *badger.Txn, tokenID uint3
 	return ans, nil
 }
 
-func (clm *itemsWalktrhoughCache) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.RawTokenFreq, error) {
+func (clm *itemsWalktrhoughCache) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.RawTokenFreq, error) {
 	if clm.rawTokenFreqCache == nil {
 		clm.rawTokenFreqCache = make(map[string][]record.RawTokenFreq)
 	}
@@ -177,7 +181,7 @@ func (db *DB) GetLemmaByID(tokenID uint32) (string, error) {
 	return lemma, err
 }
 
-func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType, deprel byte) ([]record.TokenFreq, error) {
+func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType byte, deprel uint16) ([]record.TokenFreq, error) {
 	ans := []record.TokenFreq{}
 	err := db.bdb.View(func(txn *badger.Txn) error {
 		tmp, err := db.getSingleTokenFreqTx(txn, tokenID, pos, textType, deprel)
@@ -191,7 +195,7 @@ func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType, deprel byte) ([]
 	return ans, err
 }
 
-func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.TokenFreq, error) {
+func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.TokenFreq, error) {
 	cachedTokIDs := itemsWalktrhoughCache{db: db}
 	rawItems, err := db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
 	if err != nil {
@@ -200,7 +204,7 @@ func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textTyp
 	ans := make([]record.TokenFreq, len(rawItems))
 	for i, ritem := range rawItems {
 		var rec record.TokenFreq
-		rec.Deprel = record.UDDeprelFromByte(ritem.Deprel)
+		rec.Deprel = record.UDDeprelFromUint16(ritem.Deprel)
 		rec.Freq = int(ritem.Freq)
 		lemma, err := cachedTokIDs.getLemmaByIDTxn(txn, ritem.TokenID)
 		if err != nil {
@@ -222,7 +226,7 @@ func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textTyp
 // for more variants. But note that they are hierarchical - if pos is zero than
 // other two are ignored. If pos is set and textType is zero, deprel is ignored.
 // Version that works within an existing transaction
-func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, deprel byte) ([]record.RawTokenFreq, error) {
+func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.RawTokenFreq, error) {
 	ans := make([]record.RawTokenFreq, 0, 100)
 	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
 	opts := badger.DefaultIteratorOptions
@@ -244,7 +248,7 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 			ans,
 			record.RawTokenFreq{
 				TokenID:  tokenID,
-				Deprel:   byte(decKey.Deprel1),
+				Deprel:   decKey.Deprel1,
 				Freq:     tokenValue.Freq,
 				PoS:      decKey.Pos1,
 				TextType: decKey.TextType,
@@ -256,7 +260,7 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType, 
 
 // ------
 
-type SearchFilter func(pos1 byte, deprel1 byte, pos2 byte, deprel2 byte, textType byte) bool
+type SearchFilter func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool
 
 // ------
 
@@ -391,10 +395,10 @@ func (db *DB) CalculateMeasures(
 				sumCollFreqs.add(record.RawCollocFreq{
 					Token1ID: decKey.Token1ID,
 					PoS1:     decKey.Pos1,
-					Deprel1:  byte(decKey.Deprel1),
+					Deprel1:  decKey.Deprel1,
 					Token2ID: decKey.Token2ID,
 					PoS2:     decKey.Pos2,
-					Deprel2:  byte(decKey.Deprel2),
+					Deprel2:  decKey.Deprel2,
 					Freq:     collValue.Freq,
 					AVGDist:  collValue.Dist,
 					TextType: decKey.TextType,
@@ -419,21 +423,23 @@ func (db *DB) CalculateMeasures(
 				}
 				f1 := sumFreqs1.get(val.GroupingKeyLemma1Binary())
 				f2 := sumFreqs2.get(val.GroupingKeyLemma2Binary())
-				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq*f2.Freq))
+				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq+f2.Freq))
 				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(db.Metadata.CorpusSize)) / math.Sqrt(float64(val.Freq))
+				lmi := float64(val.Freq) * math.Log2(float64(db.Metadata.CorpusSize)*float64(val.Freq)/float64(f1.Freq*f2.Freq))
 				results = append(results, Collocation{
 					Lemma: CollMember{
 						Value:  lemmaMatch.Value,
 						PoS:    pos,
-						Deprel: record.UDDeprelFromByte(val.Deprel1).Readable,
+						Deprel: db.DeprelMapping.GetRev(val.Deprel1),
 					},
 					Collocate: CollMember{
 						Value:  lemma2,
 						PoS:    record.UDPosFromByte(val.PoS2).Readable,
-						Deprel: record.UDDeprelFromByte(val.Deprel2).Readable,
+						Deprel: db.DeprelMapping.GetRev(val.Deprel2),
 					},
 					LogDice:    logDice,
 					TScore:     tscore,
+					LMI:        lmi,
 					TextType:   db.textTypes.RawToReadable(val.TextType),
 					MutualDist: val.AVGDist,
 				})
@@ -456,7 +462,14 @@ func (db *DB) CalculateMeasures(
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].LogDice > results[j].LogDice
 		})
+	case sortByLMI:
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].LMI > results[j].LMI
+		})
+	case sortByRRF:
+		SortByRRF(results)
 	}
+
 	if len(results) > limit {
 		results = results[:limit]
 	}
@@ -475,13 +488,57 @@ type CollMember struct {
 	Deprel string `json:"deprel"`
 }
 
+type roundedFloat float64
+
+func (rf roundedFloat) MarshalJSON() ([]byte, error) {
+	rounded := math.Round(float64(rf)*1000) / 1000
+	return json.Marshal(rounded)
+}
+
 type Collocation struct {
-	Lemma      CollMember `json:"lemma"`
-	Collocate  CollMember `json:"collocate"`
-	LogDice    float64    `json:"logDice"`
-	TScore     float64    `json:"tScore"`
-	MutualDist float64    `json:"mutualDist"`
-	TextType   string     `json:"textType"`
+	Lemma      CollMember
+	Collocate  CollMember
+	LogDice    float64
+	TScore     float64
+	MutualDist float64
+	LMI        float64
+	RRFScore   float64
+	TextType   string
+}
+
+func (col Collocation) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Lemma      CollMember   `json:"lemma"`
+		Collocate  CollMember   `json:"collocate"`
+		LogDice    roundedFloat `json:"logDice"`
+		TScore     roundedFloat `json:"tScore"`
+		MutualDist roundedFloat `json:"mutualDist"`
+		LMI        roundedFloat `json:"lmi"`
+		RRFScore   roundedFloat `json:"rrfScore"`
+		TextType   string       `json:"textType"`
+	}{
+		Lemma:      col.Lemma,
+		Collocate:  col.Collocate,
+		LogDice:    roundedFloat(col.LogDice),
+		TScore:     roundedFloat(col.TScore),
+		MutualDist: roundedFloat(col.MutualDist),
+		LMI:        roundedFloat(col.LMI),
+		RRFScore:   roundedFloat(col.RRFScore),
+		TextType:   col.TextType,
+	})
+}
+
+func (ldr Collocation) Hash() string {
+	hash := sha1.New()
+	data := fmt.Sprintf("%s|%s|%s|%s|%s",
+		ldr.Lemma.Value,
+		ldr.Lemma.PoS,
+		ldr.Lemma.Deprel,
+		ldr.Collocate.Value,
+		ldr.TextType,
+	)
+	hash.Write([]byte(data))
+	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
 func (ldr Collocation) lemmaPropsAsString() string {
@@ -528,6 +585,13 @@ func (ldr Collocation) formatNum(v float64) string {
 	return fmt.Sprintf("% 3.2f", v)
 }
 
+func (ldr Collocation) formatNum4(v float64) string {
+	if math.IsInf(v, 1) || math.IsInf(v, -1) {
+		return "-"
+	}
+	return fmt.Sprintf("% 1.4f", v)
+}
+
 func (ldr Collocation) AsRow() []any {
 	return []any{
 		ldr.textTypeAsString(),
@@ -537,6 +601,8 @@ func (ldr Collocation) AsRow() []any {
 		ldr.collocatePropsAsString(),
 		ldr.formatNum(ldr.TScore),
 		ldr.formatNum(ldr.LogDice),
+		ldr.formatNum(ldr.LMI),
+		ldr.formatNum4(ldr.RRFScore),
 		ldr.formatNum(ldr.MutualDist),
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 
 	"github.com/czcorpus/scollector/dataimport"
+	"github.com/czcorpus/scollector/record"
 	"github.com/rs/zerolog/log"
 
 	"github.com/czcorpus/cnc-gokit/fs"
@@ -75,7 +76,9 @@ func runCommand(path, dbPath string, prof storage.Profile, minFreq int, verbose 
 	} else {
 		freqColl = dataimport.NewNullFreqs(prof.LemmaIdx, prof.PosIdx, prof.DeprelIdx, verbose)
 	}
-	proc := dataimport.NewSearcher(50, prof.LemmaIdx, prof.ParentIdx, prof.DeprelIdx, freqColl)
+	proc := dataimport.NewSearcher(
+		50, prof.LemmaIdx, prof.PosIdx, prof.ParentIdx, prof.DeprelIdx, freqColl,
+	)
 	ctx := context.Background()
 	files, err := determineFilesToProc(path)
 	if err != nil {
@@ -116,7 +119,13 @@ func runCommand(path, dbPath string, prof storage.Profile, minFreq int, verbose 
 		NumLemmaFreqs: stats.NumLemmaFreqs,
 		NumLemmas:     stats.NumLemmas,
 		ProfileName:   prof.Name,
+		DeprelMap:     nil,
 	}
+
+	for _, v := range proc.CollectedDeprels() {
+		record.UDDeprelMapping.Register(v)
+	}
+	metadata.DeprelMap = record.UDDeprelMapping.AsMap()
 	if err := db.StoreMetadata(metadata); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR: ", err)
 		os.Exit(4)

@@ -30,9 +30,10 @@ import (
 // DB is a wrapper around badger.DB providing concrete
 // methods for adding/retrieving collocation information.
 type DB struct {
-	bdb       *badger.DB
-	textTypes record.TextTypeMapper
-	Metadata  Metadata
+	bdb           *badger.DB
+	textTypes     record.TextTypeMapper
+	Metadata      Metadata
+	DeprelMapping *record.DeprelMapping
 }
 
 // Close closes the internal Badger database.
@@ -158,6 +159,7 @@ func openDB(path string, loadProfile bool) (*DB, error) {
 				Msg("loaded dataset metadata")
 		}
 		ans.textTypes = prof.TextTypes
+		ans.DeprelMapping = record.DeprelMappingFromMap(ans.Metadata.DeprelMap)
 	}
 
 	return ans, nil
