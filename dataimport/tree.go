@@ -26,9 +26,9 @@ import (
 	"github.com/tomachalek/vertigo/v6"
 )
 
-type branch []*vertigo.Token
+type expandedSent []*vertigo.Token
 
-func (br branch) String() string {
+func (br expandedSent) String() string {
 	var buff strings.Builder
 	for i, v := range br {
 		if i > 0 {
@@ -39,24 +39,26 @@ func (br branch) String() string {
 	return buff.String()
 }
 
-func (br branch) PrintToWord2Vec(lemmaxIdx, deprelIdx int) {
+func (br expandedSent) PrintToWord2Vec(lemmaxIdx, deprelIdx int) {
 	for _, tk := range br {
 		fmt.Printf("%s_%s ", tk.PosAttrByIndex(lemmaxIdx), tk.PosAttrByIndex(deprelIdx))
 	}
 	fmt.Println()
 }
 
-func asBranch(sent []*vertigo.Token, parentAttrIdx int) branch {
-	ans := make(branch, 0, len(sent)+2)
+func asExpandedSent(sent []*vertigo.Token, parentAttrIdx int) expandedSent {
+	ans := make(expandedSent, 0, len(sent)+2)
 	for _, tk := range sent {
 		for v := range strings.SplitSeq(tk.PosAttrByIndex(parentAttrIdx), "|") {
 			tmp := *tk
+			tmp.Attrs = make([]string, len(tmp.Attrs))
+			copy(tmp.Attrs, tk.Attrs)
 			if parentAttrIdx >= len(tmp.Attrs) {
 				log.Error().
 					Int("numColumns", len(tmp.Attrs)+1).
 					Int("colIdx", parentAttrIdx).
 					Msg("failed to convert sentence to branch - column not found")
-				return branch{}
+				return expandedSent{}
 			}
 			tmp.Attrs[parentAttrIdx-1] = v
 			ans = append(ans, &tmp)
@@ -65,8 +67,47 @@ func asBranch(sent []*vertigo.Token, parentAttrIdx int) branch {
 	return ans
 }
 
-func findPathsToRoot(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []branch {
-	syntSent := asBranch(sent, parentAttrIdx)
+func isBlocklistedRel(rel string) bool {
+	return rel == "punct" || rel == "cc" || strings.HasPrefix(rel, "det") || strings.HasPrefix(rel, "aux") ||
+		rel == "cop" || rel == "mark" || strings.HasPrefix(rel, "expl") || rel == "discourse" ||
+		rel == "goeswith" || rel == "reparandum" || rel == "orphan" || rel == "list" || rel == "vocative" ||
+		rel == "dep"
+}
+
+func logCyclePath(path expandedSent, cycleToken *vertigo.Token, parentIdx int) {
+	tmp := make([]string, len(path)+1)
+	for i, v := range path {
+		tmp[i] = fmt.Sprintf("%s (parent: %s)", v.Word, cycleToken.PosAttrByIndex(parentIdx))
+	}
+	tmp[len(tmp)-1] = fmt.Sprintf("%s (parent: %s)", cycleToken.Word, cycleToken.PosAttrByIndex(parentIdx))
+	log.Error().
+		Strs("cyclePath", tmp).
+		Int("cycleElmIdx", cycleToken.Idx).
+		Strs("parentMap", collections.SliceMap(path, func(v *vertigo.Token, i int) string { return v.Word })).
+		Msg("detected cycle, skipping")
+}
+
+// --------
+
+type visitedNode struct {
+	isMultival bool
+	idx        int
+}
+
+func (vn visitedNode) ID() string {
+	return fmt.Sprintf("%d:%t", vn.idx, vn.isMultival)
+}
+
+func (vn visitedNode) valid() bool {
+	return vn.idx > -1
+}
+
+func findPathsToRoot(
+	sent []*vertigo.Token,
+	lemmaIdx, posIdx, parentAttrIdx, deprelIdx int,
+	deprelCollector *collections.Set[string],
+) []expandedSent {
+	syntSent := asExpandedSent(sent, parentAttrIdx)
 	allToks := collections.NewSet[int]()
 	parents := collections.NewSet[int]()
 	parentMap := make(map[int]int)
@@ -78,7 +119,7 @@ func findPathsToRoot(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []bran
 			// we must deal with multivalues (val1|val2) which should
 			// be split into two nodes
 			for realPar := range strings.SplitSeq(par, "|") {
-				strings.TrimPrefix(par, "+")
+				par = strings.TrimPrefix(par, "+")
 				iPar, err := strconv.Atoi(realPar)
 				if err != nil {
 					log.Error().Err(err).Str("value", par).Msg("failed to parse attribute 'parent', skipping")
@@ -90,7 +131,6 @@ func findPathsToRoot(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []bran
 		} else {
 			realPars = append(realPars, -1)
 		}
-
 		for _, rp := range realPars {
 			parents.Add(i + rp)
 
@@ -102,32 +142,56 @@ func findPathsToRoot(sent []*vertigo.Token, parentAttrIdx, deprelIdx int) []bran
 			}
 		}
 	}
-	branches := make([]branch, 0, 10)
+	branches := make([]expandedSent, 0, 10)
 	for v := range allToks.Sub(parents).Iterate {
-		path := make(branch, 0, 20)
+		path := make(expandedSent, 0, 20)
 
-		currNode := v
-		visited := collections.NewSet[int]()
-		var ok bool
-		for currNode >= 0 {
-			if visited.Contains(currNode) {
-				log.Error().Msg("detected cycle, skipping")
+		currNode := visitedNode{
+			idx:        v,
+			isMultival: strings.Contains(syntSent[v].PosAttrByIndex(parentAttrIdx), "|"),
+		}
+		visited := collections.NewHSet[visitedNode]()
+		for currNode.valid() {
+			if visited.Contains(currNode) && !currNode.isMultival {
+				logCyclePath(path, syntSent[currNode.idx], parentAttrIdx)
 				break
 			}
 			visited.Add(currNode)
-			syntTok := syntSent[currNode]
-			currNode, ok = parentMap[currNode]
+			syntTok := syntSent[currNode.idx]
+
+			parentNode := visitedNode{}
+			parentNodeIdx, ok := parentMap[currNode.idx]
 			if !ok {
 				log.Error().
 					Int("elementIdx", v).
 					Int("idx", syntSent[0].Idx).
-					Msg("broken syntax tree path for element, skipping the path")
-				continue
+					Msg("broken syntax tree path - unknown parent, taking partial path")
+				break
 			}
-			if syntTok.PosAttrByIndex(deprelIdx) != "punct" &&
-				syntTok.PosAttrByIndex(deprelIdx) != "cc" {
+			parentNode.idx = parentNodeIdx
+			if parentNode.valid() {
+				currNode.isMultival = strings.Contains(syntSent[parentNode.idx].PosAttrByIndex(parentAttrIdx), "|")
+			}
+
+			if isBlocklistedRel(syntTok.PosAttrByIndex(deprelIdx)) {
+				// NOP
+
+			} else if parentNode.valid() && syntTok.PosAttrByIndex(posIdx) == "ADP" {
+				if syntSent[parentNode.idx].PosAttrByIndex(deprelIdx) == "obl" {
+					syntSent[parentNode.idx].Attrs[deprelIdx-1] = "obl:" + syntTok.PosAttrByIndex(lemmaIdx)
+					deprelCollector.Add(syntSent[parentNode.idx].Attrs[deprelIdx-1])
+					log.Debug().
+						Str("word", syntSent[parentNode.idx].Word).
+						Str("deprel", syntSent[parentNode.idx].Attrs[deprelIdx-1]).
+						Msgf("merged ADP+case into parent obl:%s", syntTok.PosAttrByIndex(lemmaIdx))
+				}
+
+			} else {
 				path = append(path, syntTok)
 			}
+
+			currNode = parentNode
+
 		}
 		branches = append(branches, path)
 	}

@@ -55,7 +55,7 @@ func evalREPLCommand(cmd string) srchCommand {
 
 func main() {
 	limit := flag.Int("limit", 10, "max num. of matching items to show")
-	sortBy := flag.String("sort-by", "tscore", "sorting measure (either tscore or ldice)")
+	sortBy := flag.String("sort-by", "rrf", "sorting measure (either tscore or ldice)")
 	collGroupByPos := flag.Bool("collocate-group-by-pos", false, "if set, then collocates will be split by their PoS")
 	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel variants")
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
@@ -165,7 +165,18 @@ func main() {
 				headerFmt := color.New(color.FgGreen).SprintfFunc()
 				columnFmt := color.New(color.FgHiMagenta).SprintfFunc()
 
-				tbl := table.New("registry", "lemma", "lemma props.", "collocate", "collocate props", "T-Score", "Log-Dice", "mutual dist.")
+				tbl := table.New(
+					"registry",
+					"lemma",
+					"lemma props.",
+					"collocate",
+					"collocate props",
+					"T-Score",
+					"Log-Dice",
+					"LMI",
+					"RRF",
+					"mutual dist.",
+				)
 				tbl.
 					WithHeaderFormatter(headerFmt).
 					WithFirstColumnFormatter(columnFmt).

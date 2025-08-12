@@ -3,14 +3,13 @@ module github.com/czcorpus/scollector
 go 1.24.1
 
 require (
-	github.com/czcorpus/cnc-gokit v0.14.0
+	github.com/czcorpus/cnc-gokit v0.15.0
 	github.com/dgraph-io/badger/v4 v4.7.0
 	github.com/fatih/color v1.18.0
 	github.com/rodaine/table v1.3.0
 	github.com/rs/zerolog v1.32.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tomachalek/vertigo/v6 v6.1.0
-	google.golang.org/protobuf v1.36.6
 )
 
 require (
@@ -53,6 +52,7 @@ require (
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
+	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

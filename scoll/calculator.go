@@ -31,22 +31,22 @@ func FromDatabase(db *storage.DB) *Calculator {
 func createPredefinedSearchFilter(srch PredefinedSearch) storage.SearchFilter {
 	switch srch {
 	case ModifiersOf:
-		return func(pos1, deprel1, pos2, deprel2, textType byte) bool {
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
 			// TODO implement the logic
 			return false
 		}
 	case NounsModifiedBy:
-		return func(pos1, deprel1, pos2, deprel2, textType byte) bool {
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
 			// TODO implement the logic
 			return false
 		}
 	case VerbsObject:
-		return func(pos1, deprel1, pos2, deprel2, textType byte) bool {
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
 			// TODO implement the logic
 			return false
 		}
 	case VerbsSubject:
-		return func(pos1, deprel1, pos2, deprel2, textType byte) bool {
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
 			// TODO implement the logic
 			return false
 		}

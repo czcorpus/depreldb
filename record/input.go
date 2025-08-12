@@ -47,7 +47,7 @@ func (otf TokenFreq) String() string {
 		"TokenFreq(lemma: %s, pos: %s, deprel: %s, freq: %d, tt: %x)",
 		otf.Lemma,
 		UDPoSMapping.GetRev(otf.PoS.Byte()),
-		UDDeprelMapping.GetRev(otf.Deprel.Byte()),
+		UDDeprelMapping.GetRev(otf.Deprel.AsUint16()),
 		otf.Freq,
 		otf.TextType,
 	)
@@ -61,9 +61,9 @@ func (otf TokenFreq) HasPoS() bool {
 // e.g. for incremental calculation of lemma's frequency as we process a text source file.
 func (otf TokenFreq) Key() GroupingKey {
 	if otf.PoS.IsValid() {
-		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x", otf.TextType.Byte(), otf.Lemma, otf.PoS.Byte(), otf.Deprel.Byte()))
+		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x", otf.TextType.Byte(), otf.Lemma, otf.PoS.Byte(), otf.Deprel.AsUint16()))
 	}
-	return GroupingKey(fmt.Sprintf("%x|%s|-|%x", otf.TextType.Byte(), otf.Lemma, otf.Deprel.Byte()))
+	return GroupingKey(fmt.Sprintf("%x|%s|-|%x", otf.TextType.Byte(), otf.Lemma, otf.Deprel.AsUint16()))
 }
 
 // LemmaKey generates a key dependent just on the actual lemma (i.e. no PoS etc.).
@@ -104,10 +104,10 @@ func (cf CollocFreq) String() string {
 		"CollocFreq(lemma1: %s, pos1: %s, deprel1: %s, lemma2: %s, pos2: %s, deprel2: %s, freq: %d, tt: %s (%x))",
 		cf.Lemma1,
 		UDPoSMapping.GetRev(cf.PoS1.Byte()),
-		UDDeprelMapping.GetRev(cf.Deprel1.Byte()),
+		UDDeprelMapping.GetRev(cf.Deprel1.AsUint16()),
 		cf.Lemma2,
 		UDPoSMapping.GetRev(cf.PoS2.Byte()),
-		UDDeprelMapping.GetRev(cf.Deprel2.Byte()),
+		UDDeprelMapping.GetRev(cf.Deprel2.AsUint16()),
 		cf.Freq,
 		cf.TextType.Readable,
 		cf.TextType.Raw,
@@ -122,9 +122,9 @@ func (cf *CollocFreq) UpdateFreqAndDist(freq, dist int) {
 
 func (cf CollocFreq) Key() GroupingKey {
 	if cf.PoS1.IsValid() && cf.PoS2.IsValid() {
-		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x|%s|%x|%x", cf.TextType.Byte(), cf.Lemma1, cf.PoS1.Byte(), cf.Deprel1.Byte(), cf.Lemma2, cf.PoS2.Byte(), cf.Deprel2.Byte()))
+		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x|%s|%x|%x", cf.TextType.Byte(), cf.Lemma1, cf.PoS1.Byte(), cf.Deprel1.AsUint16(), cf.Lemma2, cf.PoS2.Byte(), cf.Deprel2.AsUint16()))
 	}
-	return GroupingKey(fmt.Sprintf("%x|%s|%x|%s|%x", cf.TextType.Byte(), cf.Lemma1, cf.Deprel1.Byte(), cf.Lemma2, cf.Deprel2.Byte()))
+	return GroupingKey(fmt.Sprintf("%x|%s|%x|%s|%x", cf.TextType.Byte(), cf.Lemma1, cf.Deprel1.AsUint16(), cf.Lemma2, cf.Deprel2.AsUint16()))
 }
 
 func (cf CollocFreq) Lemma1Key() string {
