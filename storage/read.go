@@ -260,7 +260,7 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType b
 
 // ------
 
-type SearchFilter func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool
+type SearchFilter func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool
 
 // ------
 
@@ -374,10 +374,6 @@ func (db *DB) CalculateMeasures(
 				if ttID > 0 && decKey.TextType != ttID {
 					continue
 				}
-				if customFilter != nil && !customFilter(
-					decKey.Pos1, decKey.Deprel1, decKey.Pos2, decKey.Deprel2, decKey.TextType) {
-					continue
-				}
 
 				var collValue record.CollocValue
 				// Get F(x,y) frequency information
@@ -388,6 +384,11 @@ func (db *DB) CalculateMeasures(
 				if err != nil {
 					// TODO
 					fmt.Fprintf(os.Stderr, "failed to get freqs from db: %s", err)
+					continue
+				}
+
+				if customFilter != nil && !customFilter(
+					decKey.Pos1, decKey.Deprel1, decKey.Pos2, decKey.Deprel2, decKey.TextType, collValue.Dist) {
 					continue
 				}
 

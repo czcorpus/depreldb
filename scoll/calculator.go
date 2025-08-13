@@ -17,6 +17,8 @@
 package scoll
 
 import (
+	"math"
+
 	"github.com/czcorpus/scollector/storage"
 )
 
@@ -31,24 +33,20 @@ func FromDatabase(db *storage.DB) *Calculator {
 func createPredefinedSearchFilter(srch PredefinedSearch) storage.SearchFilter {
 	switch srch {
 	case ModifiersOf:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool {
+			return math.Abs(dist) <= 1 && deprel1 == 0x0022 && pos1 == 0x08 // "nmod" and "NOUN"
 		}
 	case NounsModifiedBy:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool {
+			return math.Abs(dist) <= 1 && deprel1 == 0x0022 && pos2 == 0x08 // "nmod" and "NOUN"
 		}
 	case VerbsObject:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool {
+			return math.Abs(dist) <= 1 && deprel1 == 0x0023 && pos2 == 0x0f // "nsub" and "VERB"
 		}
 	case VerbsSubject:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool {
+			return math.Abs(dist) <= 1 && (deprel1 == 0x0027 || deprel1 == 0x001f) && pos2 == 0x0f // "obj|iobj" and "VERB"
 		}
 	default:
 		return nil
