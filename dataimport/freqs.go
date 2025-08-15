@@ -17,6 +17,7 @@
 package dataimport
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -37,13 +38,22 @@ type freqs struct {
 }
 
 func (f *freqs) newCollocFreq(token1, token2 *vertigo.Token, freq int, distance int) record.CollocFreq {
+	var dirDeprel record.UDDeprel
+	if distance > 0 {
+		dirDeprel = record.ImportUDDeprel(token2.PosAttrByIndex(f.DeprelIdx))
+
+	} else if distance < 0 {
+		dirDeprel = record.ImportUDDeprel(token1.PosAttrByIndex(f.DeprelIdx))
+
+	} else {
+		panic(errors.New("newCollocFreq - cannot create entry with distance 0"))
+	}
 	return record.CollocFreq{
-		Lemma1:  token1.PosAttrByIndex(f.LemmaIdx),
-		PoS1:    record.ImportUDPoS(token1.PosAttrByIndex(f.PosIdx)),
-		Deprel1: record.ImportUDDeprel(token1.PosAttrByIndex(f.DeprelIdx)),
-		Lemma2:  token2.PosAttrByIndex(f.LemmaIdx),
-		PoS2:    record.ImportUDPoS(token2.PosAttrByIndex(f.PosIdx)),
-		Deprel2: record.ImportUDDeprel(token2.PosAttrByIndex(f.DeprelIdx)),
+		Lemma1: token1.PosAttrByIndex(f.LemmaIdx),
+		PoS1:   record.ImportUDPoS(token1.PosAttrByIndex(f.PosIdx)),
+		Deprel: dirDeprel,
+		Lemma2: token2.PosAttrByIndex(f.LemmaIdx),
+		PoS2:   record.ImportUDPoS(token2.PosAttrByIndex(f.PosIdx)),
 		TextType: record.TextType{
 			Readable: token1.StructAttrs[f.TextTypeAttr],
 			Raw:      f.TTMapping[token1.StructAttrs[f.TextTypeAttr]],
@@ -83,7 +93,7 @@ func (f *freqs) validateTT(token *vertigo.Token) {
 }
 
 func (f *freqs) AddCooc(token1, token2 *vertigo.Token, freq int, distance int) {
-	newEntry := f.newCollocFreq(token1, token2, 0, 0)
+	newEntry := f.newCollocFreq(token1, token2, 0, distance) // here we need the "distance" to get proper HEAD/DEPENDENT distinction
 	entryKey := newEntry.Key()
 	curr, ok := f.Double[entryKey]
 	if !ok {
@@ -93,7 +103,7 @@ func (f *freqs) AddCooc(token1, token2 *vertigo.Token, freq int, distance int) {
 	f.Double[entryKey] = curr
 }
 
-func (f *freqs) ImportSentence(sent []*vertigo.Token) {
+func (f *freqs) ImportTreePath(sent []*vertigo.Token) {
 	if len(sent) > 0 {
 		f.validateTT(sent[0]) // just shows a warning in case of missing tt values
 	}
@@ -169,7 +179,7 @@ func (f *nullFreqs) AddCooc(lemma1, lemma2 *vertigo.Token, freq int, distance in
 	}
 }
 
-func (f *nullFreqs) ImportSentence(sent []*vertigo.Token) {
+func (f *nullFreqs) ImportTreePath(sent []*vertigo.Token) {
 	for i, tok := range sent {
 		f.AddLemma(tok, 1)
 		for j := max(0, i-2); j < min(i+2, len(sent)); j++ {

@@ -204,7 +204,6 @@ func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textTyp
 	ans := make([]record.TokenFreq, len(rawItems))
 	for i, ritem := range rawItems {
 		var rec record.TokenFreq
-		rec.Deprel = record.UDDeprelFromUint16(ritem.Deprel)
 		rec.Freq = int(ritem.Freq)
 		lemma, err := cachedTokIDs.getLemmaByIDTxn(txn, ritem.TokenID)
 		if err != nil {
@@ -221,11 +220,14 @@ func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textTyp
 	return ans, nil
 }
 
-// getRawTokenFreqTx searches for all tokens matching provided properties.
+// getRawTokenFreqTx searches for all tokens matching provided properties using
+// a provided transaction.
 // Attributes pos, textType, deprel are optional (can be set to zero) to search
 // for more variants. But note that they are hierarchical - if pos is zero than
 // other two are ignored. If pos is set and textType is zero, deprel is ignored.
-// Version that works within an existing transaction
+//
+// Also note that even if it is possible to filter by deprel, this value is not
+// a part of the result list item type.
 func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.RawTokenFreq, error) {
 	ans := make([]record.RawTokenFreq, 0, 100)
 	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
@@ -248,7 +250,6 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType b
 			ans,
 			record.RawTokenFreq{
 				TokenID:  tokenID,
-				Deprel:   decKey.Deprel1,
 				Freq:     tokenValue.Freq,
 				PoS:      decKey.Pos1,
 				TextType: decKey.TextType,
@@ -260,7 +261,7 @@ func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType b
 
 // ------
 
-type SearchFilter func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte, dist float64) bool
+type SearchFilter func(pos1 byte, deprel uint16, pos2 byte, textType byte, dist float64) bool
 
 // ------
 
@@ -270,10 +271,11 @@ type SearchFilter func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, tex
 // note: for more convenient access, use scoll.Calculator
 func (db *DB) CalculateMeasures(
 	lemma, pos, textType string,
-	lemmaIsPrefix, lemmaGroupByDeprel bool,
+	lemmaIsPrefix bool,
+	isHead *bool,
 	limit int,
 	sortBy SortingMeasure,
-	collocateGroupByPos, collocateGroupByDeprel, collocateGroupByTextType bool,
+	collocateGroupByPos, groupByDeprel, collocateGroupByTextType bool,
 	customFilter SearchFilter,
 ) ([]Collocation, error) {
 	if limit < 0 {
@@ -319,21 +321,15 @@ func (db *DB) CalculateMeasures(
 		sumCollFreqs.GroupByTT()
 	}
 
-	// if outGroupByDeprel is true, it means, user wants separate occurrences
+	// if groupByDeprel is true, it means, user wants separate occurrences
 	// of different deprels for the same lemmas
-	if collocateGroupByDeprel {
-		sumFreqs2.GroupByDeprel()
-		sumCollFreqs.GroupByDeprel2()
+	if groupByDeprel {
+		sumCollFreqs.GroupByDeprel()
 	}
 
 	if collocateGroupByPos {
 		sumFreqs2.GroupByPos()
 		sumCollFreqs.GroupByPos2()
-	}
-
-	if lemmaGroupByDeprel {
-		sumFreqs1.GroupByDeprel()
-		sumCollFreqs.GroupByDeprel1()
 	}
 
 	walkthruCache := itemsWalktrhoughCache{db: db}
@@ -355,66 +351,74 @@ func (db *DB) CalculateMeasures(
 			for _, pf1 := range partialFreqs1 {
 				sumFreqs1.add(pf1)
 			}
-			// Create prefix for all pairs starting with target lemma
-			pairPrefix := record.AllCollFreqsOfToken(lemmaMatch.TokenID)
-			opts := badger.IteratorOptions{
-				Prefix:         pairPrefix,
-				PrefetchValues: true,
-				PrefetchSize:   1000,
+
+			var headDepSearches []bool
+			if isHead == nil {
+				headDepSearches = []bool{true, false}
+
+			} else {
+				headDepSearches = []bool{*isHead}
 			}
-			it := txn.NewIterator(opts)
-			defer it.Close()
-			numDbItems := 0
-
-			for it.Rewind(); it.Valid(); it.Next() {
-				item := it.Item()
-				key := item.Key()
-				decKey := record.DecodeCollFreqKey(key)
-
-				if ttID > 0 && decKey.TextType != ttID {
-					continue
+			for _, directionFlag := range headDepSearches {
+				pairPrefix := record.AllCollFreqsOfToken(directionFlag, lemmaMatch.TokenID)
+				opts := badger.IteratorOptions{
+					Prefix:         pairPrefix,
+					PrefetchValues: true,
+					PrefetchSize:   1000,
 				}
+				it := txn.NewIterator(opts)
+				defer it.Close()
+				numDbItems := 0
 
-				var collValue record.CollocValue
-				// Get F(x,y) frequency information
-				err := item.Value(func(val []byte) error {
-					collValue = record.DecodeCollocValue(val)
-					return nil
-				})
-				if err != nil {
-					// TODO
-					fmt.Fprintf(os.Stderr, "failed to get freqs from db: %s", err)
-					continue
-				}
+				for it.Rewind(); it.Valid(); it.Next() {
+					item := it.Item()
+					key := item.Key()
+					decKey := record.DecodeCollFreqKey(key)
 
-				if customFilter != nil && !customFilter(
-					decKey.Pos1, decKey.Deprel1, decKey.Pos2, decKey.Deprel2, decKey.TextType, collValue.Dist) {
-					continue
-				}
+					if ttID > 0 && decKey.TextType != ttID {
+						continue
+					}
 
-				// F(x, y)
-				sumCollFreqs.add(record.RawCollocFreq{
-					Token1ID: decKey.Token1ID,
-					PoS1:     decKey.Pos1,
-					Deprel1:  decKey.Deprel1,
-					Token2ID: decKey.Token2ID,
-					PoS2:     decKey.Pos2,
-					Deprel2:  decKey.Deprel2,
-					Freq:     collValue.Freq,
-					AVGDist:  collValue.Dist,
-					TextType: decKey.TextType,
-				})
+					var collValue record.CollocValue
+					// Get F(x,y) frequency information
+					err := item.Value(func(val []byte) error {
+						collValue = record.DecodeCollocValue(val)
+						return nil
+					})
+					if err != nil {
+						// TODO
+						fmt.Fprintf(os.Stderr, "failed to get freqs from db: %s", err)
+						continue
+					}
 
-				// Get F(y) - frequency of second lemma
-				partialSplitFreq2, err := walkthruCache.getRawTokenFreqTx(
-					txn, decKey.Token2ID, decKey.Pos2, ttID, decKey.Deprel2)
-				if err != nil {
-					continue // Skip if we can't find single freq
+					if customFilter != nil && !customFilter(
+						decKey.Pos1, decKey.Deprel, decKey.Pos2, decKey.TextType, collValue.Dist) {
+						continue
+					}
+
+					// F(x, y)
+					sumCollFreqs.add(record.RawCollocFreq{
+						Token1ID: decKey.Token1ID,
+						PoS1:     decKey.Pos1,
+						Deprel:   decKey.Deprel,
+						Token2ID: decKey.Token2ID,
+						PoS2:     decKey.Pos2,
+						Freq:     collValue.Freq,
+						AVGDist:  collValue.Dist,
+						TextType: decKey.TextType,
+					})
+
+					// Get F(y) - frequency of second lemma
+					partialSplitFreq2, err := walkthruCache.getRawTokenFreqTx(
+						txn, decKey.Token2ID, decKey.Pos2, ttID, 0)
+					if err != nil {
+						continue // Skip if we can't find single freq
+					}
+					for _, psf2 := range partialSplitFreq2 {
+						sumFreqs2.add(psf2)
+					}
+					numDbItems++
 				}
-				for _, psf2 := range partialSplitFreq2 {
-					sumFreqs2.add(psf2)
-				}
-				numDbItems++
 			}
 			for _, val := range sumCollFreqs.Iter {
 				lemma2, err := walkthruCache.getLemmaByIDTxn(txn, val.Token2ID)
@@ -429,14 +433,13 @@ func (db *DB) CalculateMeasures(
 				lmi := float64(val.Freq) * math.Log2(float64(db.Metadata.CorpusSize)*float64(val.Freq)/float64(f1.Freq*f2.Freq))
 				results = append(results, Collocation{
 					Lemma: CollMember{
-						Value:  lemmaMatch.Value,
-						PoS:    pos,
-						Deprel: db.DeprelMapping.GetRev(val.Deprel1),
+						Value: lemmaMatch.Value,
+						PoS:   pos,
 					},
+					Deprel: db.DeprelMapping.GetRev(val.Deprel),
 					Collocate: CollMember{
-						Value:  lemma2,
-						PoS:    record.UDPosFromByte(val.PoS2).Readable,
-						Deprel: db.DeprelMapping.GetRev(val.Deprel2),
+						Value: lemma2,
+						PoS:   record.UDPosFromByte(val.PoS2).Readable,
 					},
 					LogDice:    logDice,
 					TScore:     tscore,
@@ -484,9 +487,8 @@ func (db *DB) CalculateMeasures(
 // ------------------------------------
 
 type CollMember struct {
-	Value  string `json:"value"`
-	PoS    string `json:"pos"`
-	Deprel string `json:"deprel"`
+	Value string `json:"value"`
+	PoS   string `json:"pos"`
 }
 
 type roundedFloat float64
@@ -499,6 +501,7 @@ func (rf roundedFloat) MarshalJSON() ([]byte, error) {
 type Collocation struct {
 	Lemma      CollMember
 	Collocate  CollMember
+	Deprel     string
 	LogDice    float64
 	TScore     float64
 	MutualDist float64
@@ -510,7 +513,9 @@ type Collocation struct {
 func (col Collocation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Lemma      CollMember   `json:"lemma"`
+		IsHead     bool         `json:"isHead"`
 		Collocate  CollMember   `json:"collocate"`
+		Deprel     string       `json:"deprel"`
 		LogDice    roundedFloat `json:"logDice"`
 		TScore     roundedFloat `json:"tScore"`
 		MutualDist roundedFloat `json:"mutualDist"`
@@ -519,6 +524,8 @@ func (col Collocation) MarshalJSON() ([]byte, error) {
 		TextType   string       `json:"textType"`
 	}{
 		Lemma:      col.Lemma,
+		IsHead:     col.MutualDist > 0,
+		Deprel:     col.Deprel,
 		Collocate:  col.Collocate,
 		LogDice:    roundedFloat(col.LogDice),
 		TScore:     roundedFloat(col.TScore),
@@ -531,10 +538,10 @@ func (col Collocation) MarshalJSON() ([]byte, error) {
 
 func (ldr Collocation) Hash() string {
 	hash := sha1.New()
-	data := fmt.Sprintf("%s|%s|%s|%s|%s",
+	data := fmt.Sprintf("%s|%s|%t|%s|%s",
 		ldr.Lemma.Value,
 		ldr.Lemma.PoS,
-		ldr.Lemma.Deprel,
+		ldr.MutualDist > 0,
 		ldr.Collocate.Value,
 		ldr.TextType,
 	)
@@ -543,33 +550,17 @@ func (ldr Collocation) Hash() string {
 }
 
 func (ldr Collocation) lemmaPropsAsString() string {
-	if ldr.Lemma.PoS == "" && ldr.Lemma.Deprel == "" {
+	if ldr.Lemma.PoS == "" {
 		return "(-)"
 	}
-	pos := "-"
-	if ldr.Lemma.PoS != "" {
-		pos = ldr.Lemma.PoS
-	}
-	deprel := "-"
-	if ldr.Lemma.Deprel != "" {
-		deprel = ldr.Lemma.Deprel
-	}
-	return fmt.Sprintf("(%s, %s)", deprel, pos)
+	return "(" + ldr.Lemma.PoS + ")"
 }
 
 func (ldr Collocation) collocatePropsAsString() string {
-	if ldr.Collocate.PoS == "" && ldr.Collocate.Deprel == "" {
+	if ldr.Collocate.PoS == "" {
 		return "(-)"
 	}
-	pos := "-"
-	if ldr.Collocate.PoS != "" {
-		pos = ldr.Collocate.PoS
-	}
-	deprel := "-"
-	if ldr.Collocate.Deprel != "" {
-		deprel = ldr.Collocate.Deprel
-	}
-	return fmt.Sprintf("(%s, %s)", deprel, pos)
+	return "(" + ldr.Collocate.PoS + ")"
 }
 
 func (ldr Collocation) textTypeAsString() string {
@@ -594,12 +585,26 @@ func (ldr Collocation) formatNum4(v float64) string {
 }
 
 func (ldr Collocation) AsRow() []any {
+	var arr string
+	if ldr.MutualDist < 0 {
+		dpr := ""
+		if ldr.Deprel != "" {
+			dpr = ldr.Deprel + " "
+		}
+		arr = fmt.Sprintf("%s\u2192", dpr)
+
+	} else {
+		dpr := ""
+		if ldr.Deprel != "" {
+			dpr = " " + ldr.Deprel
+		}
+		arr = fmt.Sprintf("\u2190%s", dpr)
+	}
 	return []any{
 		ldr.textTypeAsString(),
-		ldr.Lemma.Value,
-		ldr.lemmaPropsAsString(),
-		ldr.Collocate.Value,
-		ldr.collocatePropsAsString(),
+		fmt.Sprintf("%s %s", ldr.Lemma.Value, ldr.lemmaPropsAsString()),
+		arr,
+		fmt.Sprintf("%s %s", ldr.Collocate.Value, ldr.collocatePropsAsString()),
 		ldr.formatNum(ldr.TScore),
 		ldr.formatNum(ldr.LogDice),
 		ldr.formatNum(ldr.LMI),

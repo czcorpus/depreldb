@@ -25,13 +25,12 @@ import (
 type RawTokenFreq struct {
 	TokenID  uint32
 	PoS      byte
-	Deprel   uint16
 	Freq     uint32
 	TextType byte
 }
 
 // BinaryKey represents a binary grouping key for high-performance map operations
-type BinaryKey [8]byte
+type BinaryKey [6]byte
 
 // GroupingKeyBinary creates a binary key (8 bytes) instead of string key
 // Layout: [TokenID:4][PoS:1][Deprel:2][TextType:1][padding:1]
@@ -39,8 +38,7 @@ func (rtf RawTokenFreq) GroupingKeyBinary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rtf.TokenID)
 	key[4] = rtf.PoS
-	binary.LittleEndian.PutUint16(key[5:7], rtf.Deprel)
-	key[7] = rtf.TextType
+	key[5] = rtf.TextType
 	return key
 }
 
@@ -50,8 +48,6 @@ func (rtf RawTokenFreq) GroupingKey() string {
 	keyBuff.WriteString(fmt.Sprintf("%d", rtf.TokenID))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rtf.PoS))
-	keyBuff.WriteString("|")
-	keyBuff.WriteString(fmt.Sprintf("%x", rtf.Deprel))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rtf.TextType))
 	return keyBuff.String()
@@ -69,8 +65,6 @@ func (rtf RawTokenFreq) GroupingKeyOptimized() string {
 	keyBuff.WriteByte(hexChar(rtf.PoS >> 4))
 	keyBuff.WriteByte(hexChar(rtf.PoS & 0xF))
 	keyBuff.WriteByte('|')
-	keyBuff.WriteString(uitoa(uint64(rtf.Deprel)))
-	keyBuff.WriteByte('|')
 	keyBuff.WriteByte(hexChar(rtf.TextType >> 4))
 	keyBuff.WriteByte(hexChar(rtf.TextType & 0xF))
 	return keyBuff.String()
@@ -81,10 +75,9 @@ func (rtf RawTokenFreq) GroupingKeyOptimized() string {
 type RawCollocFreq struct {
 	Token1ID uint32
 	PoS1     byte
-	Deprel1  uint16
+	Deprel   uint16
 	Token2ID uint32
 	PoS2     byte
-	Deprel2  uint16
 	Freq     uint32
 	AVGDist  float64
 	TextType byte
@@ -97,14 +90,19 @@ type CollBinaryKey [16]byte
 // Layout: [Token1ID:4][PoS1:1][Deprel1:1][Token2ID:4][PoS2:1][Deprel2:1][TextType:1][padding:3]
 func (rcf RawCollocFreq) GroupingKeyBinary() CollBinaryKey {
 	var key CollBinaryKey
-	binary.LittleEndian.PutUint32(key[0:4], rcf.Token1ID)
-	key[4] = rcf.PoS1
-	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel1)
-	binary.LittleEndian.PutUint32(key[7:11], rcf.Token2ID)
-	key[11] = rcf.PoS2
-	binary.LittleEndian.PutUint16(key[12:14], rcf.Deprel1)
-	key[14] = rcf.TextType
-	// key[15] is padding/unused
+	if rcf.AVGDist > 0 {
+		key[0] = pairTokenPrefix
+
+	} else {
+		key[0] = revPairTokenPrefix
+	}
+	binary.LittleEndian.PutUint32(key[1:5], rcf.Token1ID)
+	key[5] = rcf.PoS1
+	binary.LittleEndian.PutUint16(key[6:8], rcf.Deprel)
+	binary.LittleEndian.PutUint32(key[8:12], rcf.Token2ID)
+	key[12] = rcf.PoS2
+	key[13] = rcf.TextType
+	// key[14:16] is padding/unused
 	return key
 }
 
@@ -113,8 +111,7 @@ func (rcf RawCollocFreq) GroupingKeyLemma1Binary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rcf.Token1ID)
 	key[4] = rcf.PoS1
-	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel1)
-	key[7] = rcf.TextType
+	key[5] = rcf.TextType
 	return key
 }
 
@@ -123,24 +120,27 @@ func (rcf RawCollocFreq) GroupingKeyLemma2Binary() BinaryKey {
 	var key BinaryKey
 	binary.LittleEndian.PutUint32(key[0:4], rcf.Token2ID)
 	key[4] = rcf.PoS2
-	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel2)
-	key[7] = rcf.TextType
+	key[5] = rcf.TextType
 	return key
 }
 
 func (rcf RawCollocFreq) GroupingKey() string {
 
 	var keyBuff strings.Builder
+	if rcf.AVGDist > 0 {
+		keyBuff.WriteString("H")
+
+	} else {
+		keyBuff.WriteString("D")
+	}
 	keyBuff.WriteString(fmt.Sprintf("%d", rcf.Token1ID))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.PoS1))
 	keyBuff.WriteString("|")
-	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel1))
+	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel))
 	keyBuff.WriteString(fmt.Sprintf("|%d", rcf.Token2ID))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.PoS2))
-	keyBuff.WriteString("|")
-	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel2))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.TextType))
 	return keyBuff.String()
@@ -153,7 +153,7 @@ func (rcf RawCollocFreq) GroupingKeyLemma1() string {
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.PoS1))
 	keyBuff.WriteString("|")
-	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel1))
+	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.TextType))
 	return keyBuff.String()
@@ -166,7 +166,7 @@ func (rcf RawCollocFreq) GroupingKeyLemma2() string {
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.PoS2))
 	keyBuff.WriteString("|")
-	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel2))
+	keyBuff.WriteString(fmt.Sprintf("%x", rcf.Deprel))
 	keyBuff.WriteString("|")
 	keyBuff.WriteString(fmt.Sprintf("%x", rcf.TextType))
 	return keyBuff.String()

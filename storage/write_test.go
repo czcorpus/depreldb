@@ -66,10 +66,9 @@ func TestStoreData(t *testing.T) {
 		"pair1": {
 			Lemma1:   "word",
 			PoS1:     record.UDPosFromByte(0x01),
-			Deprel1:  record.UDDeprelFromUint16(0x01),
+			Deprel:   record.UDDeprelFromUint16(0x01),
 			Lemma2:   "example",
 			PoS2:     record.UDPosFromByte(0x02),
-			Deprel2:  record.UDDeprelFromUint16(0x02),
 			Freq:     25,
 			AVGDist:  1.5,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
@@ -77,10 +76,9 @@ func TestStoreData(t *testing.T) {
 		"pair2": {
 			Lemma1:   "example",
 			PoS1:     record.UDPosFromByte(0x02),
-			Deprel1:  record.UDDeprelFromUint16(0x02),
+			Deprel:   record.UDDeprelFromUint16(0x02),
 			Lemma2:   "run",
 			PoS2:     record.UDPosFromByte(0x03),
-			Deprel2:  record.UDDeprelFromUint16(0x03),
 			Freq:     10,
 			AVGDist:  2.0,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
@@ -88,10 +86,9 @@ func TestStoreData(t *testing.T) {
 		"pair3": {
 			Lemma1:   "word",
 			PoS1:     record.UDPosFromByte(0x01),
-			Deprel1:  record.UDDeprelFromUint16(0x01),
+			Deprel:   record.UDDeprelFromUint16(0x01),
 			Lemma2:   "run",
 			PoS2:     record.UDPosFromByte(0x03),
-			Deprel2:  record.UDDeprelFromUint16(0x03),
 			Freq:     5,
 			AVGDist:  1.7,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
@@ -154,7 +151,7 @@ func TestStoreData(t *testing.T) {
 			// Try to retrieve the pair frequency directly from BadgerDB
 			err := db.bdb.View(func(txn *badger.Txn) error {
 				key := record.CollFreqKey(
-					tokenID1, pairFreq.PoS1.Byte(), pairFreq.TextType.Byte(), pairFreq.Deprel1.AsUint16(), tokenID2, pairFreq.PoS2.Byte(), pairFreq.Deprel2.AsUint16())
+					true, tokenID1, pairFreq.PoS1.Byte(), pairFreq.TextType.Byte(), pairFreq.Deprel.AsUint16(), tokenID2, pairFreq.PoS2.Byte())
 				item, err := txn.Get(key)
 				if err != nil {
 					return err
@@ -188,10 +185,9 @@ func TestStoreData(t *testing.T) {
 		lowFreqPair := record.CollocFreq{
 			Lemma1:   "low",
 			PoS1:     record.UDPosFromByte(0x01),
-			Deprel1:  record.UDDeprelFromUint16(0x01),
+			Deprel:   record.UDDeprelFromUint16(0x01),
 			Lemma2:   "freq",
 			PoS2:     record.UDPosFromByte(0x02),
-			Deprel2:  record.UDDeprelFromUint16(0x02),
 			Freq:     2, // Below minPairFreq of 5
 			AVGDist:  10.0,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
@@ -229,7 +225,7 @@ func TestStoreData(t *testing.T) {
 
 		err = db.bdb.View(func(txn *badger.Txn) error {
 			key := record.CollFreqKey(
-				tokenID1, lowFreqPair.PoS1.Byte(), lowFreqPair.TextType.Byte(), lowFreqPair.Deprel1.AsUint16(), tokenID2, lowFreqPair.PoS2.Byte(), lowFreqPair.Deprel2.AsUint16())
+				true, tokenID1, lowFreqPair.PoS1.Byte(), lowFreqPair.TextType.Byte(), lowFreqPair.Deprel.AsUint16(), tokenID2, lowFreqPair.PoS2.Byte())
 			_, err := txn.Get(key)
 			return err
 		})

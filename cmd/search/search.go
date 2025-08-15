@@ -57,9 +57,9 @@ func main() {
 	limit := flag.Int("limit", 10, "max num. of matching items to show")
 	sortBy := flag.String("sort-by", "rrf", "sorting measure (either tscore or ldice)")
 	collGroupByPos := flag.Bool("collocate-group-by-pos", false, "if set, then collocates will be split by their PoS")
-	collGroupByDeprel := flag.Bool("collocate-group-by-deprel", false, "if set, then collocates will be split by their Deprel variants")
+	groupByDeprel := flag.Bool("group-by-deprel", false, "if set, then collocates will be split by their Deprel variants")
 	collGroupByTT := flag.Bool("collocate-group-by-tt", false, "if set, then collocates will be split by their text type (registry)")
-	lemmaGroupByDeprel := flag.Bool("lemma-group-by-deprel", false, "if set, then searched lemma will be split by its Deprel variants")
+	predefinedSearch := flag.String("predefined-search", "", "use predefined search (modifiers-of, nouns-modified-by, verbs-subject, verbs-object)")
 	jsonOut := flag.Bool("json-out", false, "if set then JSON format will be used to print results")
 	logLevel := flag.String("log-level", "info", "set log level (debug, info, warn, error)")
 	repl := flag.Bool("repl", false, "if set, then the search will run in an infinite read-eval-print loop (until Ctrl+C is pressed)")
@@ -85,17 +85,22 @@ func main() {
 		gbPos = scoll.WithCollocateGroupByPos()
 	}
 	gbDeprel := scoll.WithNOP()
-	if *collGroupByDeprel {
-		gbDeprel = scoll.WithCollocateGroupByDeprel()
+	if *groupByDeprel {
+		gbDeprel = scoll.WithGroupByDeprel()
 	}
 	gbTT := scoll.WithNOP()
 	if *collGroupByTT {
 		gbTT = scoll.WithCollocateGroupByTextType()
 	}
 
-	gbLPos := scoll.WithNOP()
-	if *lemmaGroupByDeprel {
-		gbLPos = scoll.WithLemmaGroupByDeprel()
+	gbPredSrch := scoll.WithNOP()
+	if *predefinedSearch != "" {
+		tmp := scoll.PredefinedSearch(*predefinedSearch)
+		if !tmp.Validate() {
+			fmt.Fprintf(os.Stderr, "uknown predefined search: %s", *predefinedSearch)
+			os.Exit(1)
+		}
+		gbPredSrch = scoll.WithPredefinedSearch(tmp)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -142,7 +147,7 @@ func main() {
 			gbPos,
 			gbDeprel,
 			gbTT,
-			gbLPos,
+			gbPredSrch,
 		)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR: ", err)
@@ -168,9 +173,8 @@ func main() {
 				tbl := table.New(
 					"registry",
 					"lemma",
-					"lemma props.",
+					"dependency",
 					"collocate",
-					"collocate props",
 					"T-Score",
 					"Log-Dice",
 					"LMI",
