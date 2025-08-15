@@ -79,8 +79,8 @@ func (db *DB) StoreSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, freq recor
 
 func (db *DB) StorePairTokenFreqTx(txn *badger.Txn, token1ID, token2ID uint32, collFreq record.CollocFreq) error {
 	key := record.CollFreqKey(
-		token1ID, collFreq.PoS1.Byte(), collFreq.TextType.Byte(), collFreq.Deprel1.AsUint16(),
-		token2ID, collFreq.PoS2.Byte(), collFreq.Deprel2.AsUint16())
+		collFreq.AVGDist > 0, token1ID, collFreq.PoS1.Byte(), collFreq.TextType.Byte(), collFreq.Deprel.AsUint16(),
+		token2ID, collFreq.PoS2.Byte())
 	encoded := record.EncodeCollocValue(uint32(collFreq.Freq), collFreq.AVGDist)
 	return txn.Set(key, encoded)
 }

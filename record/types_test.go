@@ -205,10 +205,9 @@ func TestCollocFreq_Key(t *testing.T) {
 			cf: CollocFreq{
 				Lemma1:   "word1",
 				PoS1:     UDPosFromByte(0x08),      // NOUN
-				Deprel1:  UDDeprelFromUint16(0x23), // nsubj
+				Deprel:   UDDeprelFromUint16(0x23), // nsubj
 				Lemma2:   "word2",
-				PoS2:     UDPosFromByte(0x0f),      // VERB
-				Deprel2:  UDDeprelFromUint16(0x27), // obj
+				PoS2:     UDPosFromByte(0x0f), // VERB
 				TextType: TextType{Raw: 0x01},
 			},
 			expected: "1|word1|8|23|word2|f|27",
@@ -218,10 +217,9 @@ func TestCollocFreq_Key(t *testing.T) {
 			cf: CollocFreq{
 				Lemma1:   "word1",
 				PoS1:     UDPosFromByte(0x00),
-				Deprel1:  UDDeprelFromUint16(0x23),
+				Deprel:   UDDeprelFromUint16(0x23),
 				Lemma2:   "word2",
 				PoS2:     UDPosFromByte(0x00),
-				Deprel2:  UDDeprelFromUint16(0x27),
 				TextType: TextType{Raw: 0x01},
 			},
 			expected: "1|word1|23|word2|27",
@@ -231,10 +229,9 @@ func TestCollocFreq_Key(t *testing.T) {
 			cf: CollocFreq{
 				Lemma1:   "word1",
 				PoS1:     UDPosFromByte(0x08), // NOUN
-				Deprel1:  UDDeprelFromUint16(0x23),
+				Deprel:   UDDeprelFromUint16(0x23),
 				Lemma2:   "word2",
 				PoS2:     UDPosFromByte(0x00), // no POS
-				Deprel2:  UDDeprelFromUint16(0x27),
 				TextType: TextType{Raw: 0x01},
 			},
 			expected: "1|word1|23|word2|27", // falls back to no-POS format
@@ -251,12 +248,12 @@ func TestCollocFreq_Key(t *testing.T) {
 
 func TestCollocFreq_Key_Uniqueness(t *testing.T) {
 	testCases := []CollocFreq{
-		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel1: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), Deprel2: UDDeprelFromUint16(0x27), TextType: TextType{Raw: 0x01}},
-		{Lemma1: "word1", PoS1: UDPosFromByte(0x0f), Deprel1: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x08), Deprel2: UDDeprelFromUint16(0x27), TextType: TextType{Raw: 0x01}}, // swapped POS
-		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel1: UDDeprelFromUint16(0x27), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), Deprel2: UDDeprelFromUint16(0x23), TextType: TextType{Raw: 0x01}}, // swapped deprel
-		{Lemma1: "word2", PoS1: UDPosFromByte(0x08), Deprel1: UDDeprelFromUint16(0x23), Lemma2: "word1", PoS2: UDPosFromByte(0x0f), Deprel2: UDDeprelFromUint16(0x27), TextType: TextType{Raw: 0x01}}, // swapped lemmas
-		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel1: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), Deprel2: UDDeprelFromUint16(0x27), TextType: TextType{Raw: 0x02}}, // different text type
-		{Lemma1: "word1", PoS1: UDPosFromByte(0x00), Deprel1: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x00), Deprel2: UDDeprelFromUint16(0x27), TextType: TextType{Raw: 0x01}}, // no POS
+		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), TextType: TextType{Raw: 0x01}},
+		{Lemma1: "word1", PoS1: UDPosFromByte(0x0f), Deprel: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x08), TextType: TextType{Raw: 0x01}}, // swapped POS
+		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel: UDDeprelFromUint16(0x27), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), TextType: TextType{Raw: 0x01}}, // swapped deprel
+		{Lemma1: "word2", PoS1: UDPosFromByte(0x08), Deprel: UDDeprelFromUint16(0x23), Lemma2: "word1", PoS2: UDPosFromByte(0x0f), TextType: TextType{Raw: 0x01}}, // swapped lemmas
+		{Lemma1: "word1", PoS1: UDPosFromByte(0x08), Deprel: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x0f), TextType: TextType{Raw: 0x02}}, // different text type
+		{Lemma1: "word1", PoS1: UDPosFromByte(0x00), Deprel: UDDeprelFromUint16(0x23), Lemma2: "word2", PoS2: UDPosFromByte(0x00), TextType: TextType{Raw: 0x01}}, // no POS
 	}
 
 	keys := make(map[GroupingKey]bool)

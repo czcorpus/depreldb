@@ -35,6 +35,10 @@ const (
 
 type PredefinedSearch string
 
+func (ps PredefinedSearch) Validate() bool {
+	return ps == ModifiersOf || ps == NounsModifiedBy || ps == VerbsSubject || ps == VerbsObject
+}
+
 type CalculationOptions struct {
 	PrefixSearch             bool
 	PoS                      string
@@ -42,9 +46,9 @@ type CalculationOptions struct {
 	Limit                    int
 	SortBy                   storage.SortingMeasure
 	CollocateGroupByPos      bool
-	CollocateGroupByDeprel   bool
+	GroupByDeprel            bool
 	CollocateGroupByTextType bool
-	LemmaGroupByDeprel       bool
+	LemmasAsHead             *bool
 	PredefinedSearch         PredefinedSearch
 }
 
@@ -84,9 +88,23 @@ func WithCollocateGroupByPos() func(opts *CalculationOptions) {
 	}
 }
 
-func WithCollocateGroupByDeprel() func(opts *CalculationOptions) {
+func WithGroupByDeprel() func(opts *CalculationOptions) {
 	return func(opts *CalculationOptions) {
-		opts.CollocateGroupByDeprel = true
+		opts.GroupByDeprel = true
+	}
+}
+
+func WithLemmaAsHead() func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
+		val := true
+		opts.LemmasAsHead = &val
+	}
+}
+
+func WithLemmaAsDependent() func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
+		val := false
+		opts.LemmasAsHead = &val
 	}
 }
 
@@ -96,15 +114,13 @@ func WithCollocateGroupByTextType() func(opts *CalculationOptions) {
 	}
 }
 
-func WithLemmaGroupByDeprel() func(opts *CalculationOptions) {
-	return func(opts *CalculationOptions) {
-		opts.LemmaGroupByDeprel = true
-	}
-}
-
 func WithPredefinedSearch(srch PredefinedSearch) func(opts *CalculationOptions) {
 	return func(opts *CalculationOptions) {
 		opts.PredefinedSearch = srch
+		opts.GroupByDeprel = true
+		opts.CollocateGroupByPos = true
+		isHead := srch == ModifiersOf
+		opts.LemmasAsHead = &isHead
 	}
 }
 

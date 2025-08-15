@@ -25,7 +25,11 @@ import (
 type FreqsCollector interface {
 	AddLemma(lemma *vertigo.Token, freq int)
 	AddCooc(lemma1, lemma2 *vertigo.Token, freq int, distance int)
-	ImportSentence(sent []*vertigo.Token)
+
+	// ImportTreePath imports a dependendency tree path
+	// (oriented from a leaf to the root - this preserves consistent
+	// node distance signs).
+	ImportTreePath(sent []*vertigo.Token)
 	PrintPreview()
 	StoreToDb(db *storage.DB, minFreq int) (storage.ImportStats, error)
 }
@@ -70,7 +74,7 @@ func (vf *Searcher) analyzeLastSent() {
 					vf.extendedDeprels,
 				)
 				for _, b := range branches {
-					vf.freqs.ImportSentence(b)
+					vf.freqs.ImportTreePath(b)
 				}
 			}
 		}

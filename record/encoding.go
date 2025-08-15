@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	metadataPrefix    byte = 0x01
-	lemmaToIDPrefix   byte = 0x02 // "lemma" -> tokenID
-	idToLemmaPrefix   byte = 0x03 // tokenID -> "lemma" (reverse lookup)
-	singleTokenPrefix byte = 0x04 // tokenID -> frequency
-	pairTokenPrefix   byte = 0x05 // (tokenID1, tokenID2) -> frequency
+	metadataPrefix     byte = 0x01
+	lemmaToIDPrefix    byte = 0x02 // "lemma" -> tokenID
+	idToLemmaPrefix    byte = 0x03 // tokenID -> "lemma" (reverse lookup)
+	singleTokenPrefix  byte = 0x04 // tokenID -> frequency
+	pairTokenPrefix    byte = 0x05 // (tokenID1, tokenID2) -> frequency&dist (where tokenID1 is HEAD)
+	revPairTokenPrefix byte = 0x06 // (tokenID1, tokenID2) -> frequency&dist (where tokenID1 is DEPENDENT)
 
 	MetadataKeyImportProfile byte = 0x01
 )
@@ -35,10 +36,9 @@ const (
 type DecodedKey struct {
 	Token1ID uint32
 	Pos1     byte
-	Deprel1  uint16
+	Deprel   uint16
 	Token2ID uint32
 	Pos2     byte
-	Deprel2  uint16
 	TextType byte
 }
 
@@ -78,16 +78,20 @@ func CreateMetadataKey(keyID byte) []byte {
 // byte 9-12: token2 ID
 // byte 13:   token2 PoS
 // byte 14-15: token2 deprel
-func CollFreqKey(token1ID uint32, pos1, textType byte, deprel1 uint16, token2ID uint32, pos2 byte, deprel2 uint16) []byte {
-	key := make([]byte, 1+4+1+1+2+4+1+2)
-	key[0] = pairTokenPrefix
+func CollFreqKey(t1IsHead bool, token1ID uint32, pos1, textType byte, deprel uint16, token2ID uint32, pos2 byte) []byte {
+	key := make([]byte, 1+4+1+1+2+4+1)
+	if t1IsHead {
+		key[0] = pairTokenPrefix
+
+	} else {
+		key[0] = revPairTokenPrefix
+	}
 	binary.LittleEndian.PutUint32(key[1:5], token1ID)
 	key[5] = pos1
 	key[6] = textType
-	binary.LittleEndian.PutUint16(key[7:9], deprel1)
+	binary.LittleEndian.PutUint16(key[7:9], deprel)
 	binary.LittleEndian.PutUint32(key[9:13], token2ID)
 	key[13] = pos2
-	binary.LittleEndian.PutUint16(key[14:16], deprel2)
 	return key
 }
 
@@ -98,19 +102,23 @@ func DecodeCollFreqKey(key []byte) DecodedKey {
 		Token1ID: binary.LittleEndian.Uint32(key[1:5]),
 		Pos1:     key[5],
 		TextType: key[6],
-		Deprel1:  binary.LittleEndian.Uint16(key[7:9]),
+		Deprel:   binary.LittleEndian.Uint16(key[7:9]),
 		Token2ID: binary.LittleEndian.Uint32(key[9:13]),
 		Pos2:     key[13],
-		Deprel2:  binary.LittleEndian.Uint16(key[14:16]),
 	}
 }
 
 // AllCollFreqsOfToken generates a db key to search for all
 // the collocation freq. records of this token (where the token
 // is the first one).
-func AllCollFreqsOfToken(tokenID uint32) []byte {
+func AllCollFreqsOfToken(isHead bool, tokenID uint32) []byte {
 	key := make([]byte, 5)
-	key[0] = pairTokenPrefix
+	if isHead {
+		key[0] = pairTokenPrefix
+
+	} else {
+		key[0] = revPairTokenPrefix
+	}
 	binary.LittleEndian.PutUint32(key[1:5], tokenID)
 	return key
 }
@@ -171,9 +179,6 @@ func DecodeTokenFreqKey(key []byte) DecodedKey {
 	}
 	if len(key) >= 7 {
 		ans.TextType = key[6]
-	}
-	if len(key) >= 9 {
-		ans.Deprel1 = binary.LittleEndian.Uint16(key[7:9])
 	}
 	return ans
 }

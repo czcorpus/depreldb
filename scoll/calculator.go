@@ -17,6 +17,7 @@
 package scoll
 
 import (
+	"github.com/czcorpus/scollector/record"
 	"github.com/czcorpus/scollector/storage"
 )
 
@@ -31,24 +32,20 @@ func FromDatabase(db *storage.DB) *Calculator {
 func createPredefinedSearchFilter(srch PredefinedSearch) storage.SearchFilter {
 	switch srch {
 	case ModifiersOf:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel uint16, pos2 byte, textType byte, dist float64) bool {
+			return dist > 0 && deprel == record.DeprelNmod && pos1 == record.PosNOUN
 		}
 	case NounsModifiedBy:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel uint16, pos2 byte, textType byte, dist float64) bool {
+			return dist < 0 && deprel == record.DeprelNmod && pos2 == record.PosNOUN
 		}
 	case VerbsObject:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel uint16, pos2 byte, textType byte, dist float64) bool {
+			return dist < 0 && deprel == record.DeprelNsubj && pos2 == record.PosVERB
 		}
 	case VerbsSubject:
-		return func(pos1 byte, deprel1 uint16, pos2 byte, deprel2 uint16, textType byte) bool {
-			// TODO implement the logic
-			return false
+		return func(pos1 byte, deprel uint16, pos2 byte, textType byte, dist float64) bool {
+			return dist < 0 && (deprel == record.DeprelObj || deprel == record.DeprelIobj) && pos2 == record.PosVERB
 		}
 	default:
 		return nil
@@ -66,11 +63,11 @@ func (calc *Calculator) GetCollocations(lemma string, options ...func(opts *Calc
 		opts.PoS,
 		opts.TextType,
 		opts.PrefixSearch,
-		opts.LemmaGroupByDeprel,
+		opts.LemmasAsHead,
 		opts.Limit,
 		opts.SortBy,
 		opts.CollocateGroupByPos,
-		opts.CollocateGroupByDeprel,
+		opts.GroupByDeprel,
 		opts.CollocateGroupByTextType,
 		customFilter,
 	)

@@ -45,20 +45,12 @@ func (rg *tokenFreqGrouping) GroupByTT() *tokenFreqGrouping {
 	return rg
 }
 
-func (rg *tokenFreqGrouping) GroupByDeprel() *tokenFreqGrouping {
-	rg.groupByDeprel = true
-	return rg
-}
-
 func (rg *tokenFreqGrouping) add(f record.RawTokenFreq) {
 	if !rg.groupByTT {
 		f.TextType = 0
 	}
 	if !rg.groupByPos {
 		f.PoS = 0
-	}
-	if !rg.groupByDeprel {
-		f.Deprel = 0
 	}
 	key := f.GroupingKeyBinary()
 	curr, ok := rg.data[key]
@@ -84,12 +76,11 @@ func newTokenFreqGrouping() *tokenFreqGrouping {
 // -----------------------------------------
 
 type collFreqGrouping struct {
-	groupByPos1    bool
-	groupByDeprel1 bool
-	groupByPos2    bool
-	groupByDeprel2 bool
-	groupByTT      bool
-	data           map[record.CollBinaryKey]record.RawCollocFreq
+	groupByPos1   bool
+	groupByDeprel bool
+	groupByPos2   bool
+	groupByTT     bool
+	data          map[record.CollBinaryKey]record.RawCollocFreq
 }
 
 func (rg *collFreqGrouping) Iter(yield func(k record.CollBinaryKey, v record.RawCollocFreq) bool) {
@@ -110,13 +101,8 @@ func (rg *collFreqGrouping) GroupByPos2() *collFreqGrouping {
 	return rg
 }
 
-func (rg *collFreqGrouping) GroupByDeprel1() *collFreqGrouping {
-	rg.groupByDeprel1 = true
-	return rg
-}
-
-func (rg *collFreqGrouping) GroupByDeprel2() *collFreqGrouping {
-	rg.groupByDeprel2 = true
+func (rg *collFreqGrouping) GroupByDeprel() *collFreqGrouping {
+	rg.groupByDeprel = true
 	return rg
 }
 
@@ -136,11 +122,8 @@ func (rg *collFreqGrouping) add(f record.RawCollocFreq) {
 		f.PoS2 = 0
 	}
 
-	if !rg.groupByDeprel1 {
-		f.Deprel1 = 0
-	}
-	if !rg.groupByDeprel2 {
-		f.Deprel2 = 0
+	if !rg.groupByDeprel {
+		f.Deprel = 0
 	}
 
 	key := f.GroupingKeyBinary()

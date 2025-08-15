@@ -90,10 +90,9 @@ func SumTokenFreqs(items []TokenFreq) int {
 type CollocFreq struct {
 	Lemma1   string
 	PoS1     UDPoS
-	Deprel1  UDDeprel
+	Deprel   UDDeprel
 	Lemma2   string
 	PoS2     UDPoS
-	Deprel2  UDDeprel
 	Freq     int
 	AVGDist  float64
 	TextType TextType
@@ -101,13 +100,12 @@ type CollocFreq struct {
 
 func (cf CollocFreq) String() string {
 	return fmt.Sprintf(
-		"CollocFreq(lemma1: %s, pos1: %s, deprel1: %s, lemma2: %s, pos2: %s, deprel2: %s, freq: %d, tt: %s (%x))",
+		"CollocFreq(lemma1: %s, pos1: %s, deprel: %s, lemma2: %s, pos2: %s, freq: %d, tt: %s (%x))",
 		cf.Lemma1,
 		UDPoSMapping.GetRev(cf.PoS1.Byte()),
-		UDDeprelMapping.GetRev(cf.Deprel1.AsUint16()),
+		UDDeprelMapping.GetRev(cf.Deprel.AsUint16()),
 		cf.Lemma2,
 		UDPoSMapping.GetRev(cf.PoS2.Byte()),
-		UDDeprelMapping.GetRev(cf.Deprel2.AsUint16()),
 		cf.Freq,
 		cf.TextType.Readable,
 		cf.TextType.Raw,
@@ -121,10 +119,17 @@ func (cf *CollocFreq) UpdateFreqAndDist(freq, dist int) {
 }
 
 func (cf CollocFreq) Key() GroupingKey {
-	if cf.PoS1.IsValid() && cf.PoS2.IsValid() {
-		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x|%s|%x|%x", cf.TextType.Byte(), cf.Lemma1, cf.PoS1.Byte(), cf.Deprel1.AsUint16(), cf.Lemma2, cf.PoS2.Byte(), cf.Deprel2.AsUint16()))
+	headDep := "h"
+	if cf.AVGDist < 0 {
+		headDep = "d"
 	}
-	return GroupingKey(fmt.Sprintf("%x|%s|%x|%s|%x", cf.TextType.Byte(), cf.Lemma1, cf.Deprel1.AsUint16(), cf.Lemma2, cf.Deprel2.AsUint16()))
+	if cf.PoS1.IsValid() && cf.PoS2.IsValid() {
+		return GroupingKey(
+			fmt.Sprintf(
+				"%x|%s|%s|%x|%x|%s|%x",
+				cf.TextType.Byte(), cf.Lemma1, headDep, cf.PoS1.Byte(), cf.Deprel.AsUint16(), cf.Lemma2, cf.PoS2.Byte()))
+	}
+	return GroupingKey(fmt.Sprintf("%x|%s|%s|%x|%s", cf.TextType.Byte(), cf.Lemma1, headDep, cf.Deprel.AsUint16(), cf.Lemma2))
 }
 
 func (cf CollocFreq) Lemma1Key() string {
