@@ -17,6 +17,8 @@
 package storage
 
 import (
+	"fmt"
+	"math"
 	"sort"
 )
 
@@ -45,12 +47,19 @@ func SortByRRF(items []Collocation) {
 		return list3[i].TScore > list3[j].TScore
 	})
 
+	list4 := make([]Collocation, len(items))
+	copy(list4, items)
+	sort.Slice(list4, func(i, j int) bool {
+		return list4[i].LogLikelihood > list4[j].LogLikelihood
+	})
+
 	scores := make(map[string]float64)
 
 	for i := range len(items) {
 		scores[list1[i].Hash()] += 1.0 / float64((rrfConstantD + i))
 		scores[list2[i].Hash()] += 1.0 / float64((rrfConstantD + i))
 		scores[list3[i].Hash()] += 1.0 / float64((rrfConstantD + i))
+		scores[list4[i].Hash()] += 1.0 / float64((rrfConstantD + i))
 	}
 
 	for i := range len(items) {
@@ -60,4 +69,27 @@ func SortByRRF(items []Collocation) {
 		return items[i].RRFScore > items[j].RRFScore
 	})
 
+}
+
+/*
+|     |  y  | !y    | total |
+|  x  |  a  |  b    | a + b |
+|  !x |  c  |  d    | c + d |
+|     | a+c | b+d   |  n    |
+*/
+
+func LLScore(fxy, fx, fy uint32, n int64) float64 {
+	a := float64(fxy)
+	b := float64(fx - fxy)
+	c := float64(fy - fxy)
+	d := float64(n - int64(fx) - int64(fy) + int64(fxy))
+	ans := 2 * (a*math.Log(a) + b*math.Log(b) + c*math.Log(c) + d*math.Log(d) -
+		(a+b)*math.Log(a+b) - (a+c)*math.Log(a+c) -
+		(b+d)*math.Log(b+d) - (c+d)*math.Log(c+d) +
+		(a+b+c+d)*math.Log(a+b+c+d))
+	if ans > 9005754207 {
+		fmt.Printf("GIGA NUMBER: %v, fx: %v, fy: %v, fxy: %v\n", ans, fx, fy, fxy)
+	}
+
+	return ans
 }

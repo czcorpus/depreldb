@@ -36,6 +36,7 @@ const (
 	sortByLogDice SortingMeasure = "ldice"
 	sortByTScore  SortingMeasure = "tscore"
 	sortByLMI     SortingMeasure = "lmi"
+	sortByLL      SortingMeasure = "ll"
 	sortByRRF     SortingMeasure = "rrf"
 )
 
@@ -431,6 +432,7 @@ func (db *DB) CalculateMeasures(
 				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq+f2.Freq))
 				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(db.Metadata.CorpusSize)) / math.Sqrt(float64(val.Freq))
 				lmi := float64(val.Freq) * math.Log2(float64(db.Metadata.CorpusSize)*float64(val.Freq)/float64(f1.Freq*f2.Freq))
+				ll := LLScore(val.Freq, f1.Freq, f2.Freq, db.Metadata.CorpusSize)
 				results = append(results, Collocation{
 					Lemma: CollMember{
 						Value: lemmaMatch.Value,
@@ -441,11 +443,12 @@ func (db *DB) CalculateMeasures(
 						Value: lemma2,
 						PoS:   record.UDPosFromByte(val.PoS2).Readable,
 					},
-					LogDice:    logDice,
-					TScore:     tscore,
-					LMI:        lmi,
-					TextType:   db.textTypes.RawToReadable(val.TextType),
-					MutualDist: val.AVGDist,
+					LogDice:       logDice,
+					TScore:        tscore,
+					LMI:           lmi,
+					TextType:      db.textTypes.RawToReadable(val.TextType),
+					LogLikelihood: ll,
+					MutualDist:    val.AVGDist,
 				})
 				numProcVariants++
 			}
@@ -469,6 +472,10 @@ func (db *DB) CalculateMeasures(
 	case sortByLMI:
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].LMI > results[j].LMI
+		})
+	case sortByLL:
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].LogLikelihood > results[j].LogLikelihood
 		})
 	case sortByRRF:
 		SortByRRF(results)
@@ -499,40 +506,43 @@ func (rf roundedFloat) MarshalJSON() ([]byte, error) {
 }
 
 type Collocation struct {
-	Lemma      CollMember
-	Collocate  CollMember
-	Deprel     string
-	LogDice    float64
-	TScore     float64
-	MutualDist float64
-	LMI        float64
-	RRFScore   float64
-	TextType   string
+	Lemma         CollMember
+	Collocate     CollMember
+	Deprel        string
+	LogDice       float64
+	TScore        float64
+	MutualDist    float64
+	LMI           float64
+	LogLikelihood float64
+	RRFScore      float64
+	TextType      string
 }
 
 func (col Collocation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Lemma      CollMember   `json:"lemma"`
-		IsHead     bool         `json:"isHead"`
-		Collocate  CollMember   `json:"collocate"`
-		Deprel     string       `json:"deprel"`
-		LogDice    roundedFloat `json:"logDice"`
-		TScore     roundedFloat `json:"tScore"`
-		MutualDist roundedFloat `json:"mutualDist"`
-		LMI        roundedFloat `json:"lmi"`
-		RRFScore   roundedFloat `json:"rrfScore"`
-		TextType   string       `json:"textType"`
+		Lemma         CollMember   `json:"lemma"`
+		IsHead        bool         `json:"isHead"`
+		Collocate     CollMember   `json:"collocate"`
+		Deprel        string       `json:"deprel"`
+		LogDice       roundedFloat `json:"logDice"`
+		TScore        roundedFloat `json:"tScore"`
+		MutualDist    roundedFloat `json:"mutualDist"`
+		LMI           roundedFloat `json:"lmi"`
+		LogLikelihood roundedFloat `json:"logLikelihood"`
+		RRFScore      roundedFloat `json:"rrfScore"`
+		TextType      string       `json:"textType"`
 	}{
-		Lemma:      col.Lemma,
-		IsHead:     col.MutualDist > 0,
-		Deprel:     col.Deprel,
-		Collocate:  col.Collocate,
-		LogDice:    roundedFloat(col.LogDice),
-		TScore:     roundedFloat(col.TScore),
-		MutualDist: roundedFloat(col.MutualDist),
-		LMI:        roundedFloat(col.LMI),
-		RRFScore:   roundedFloat(col.RRFScore),
-		TextType:   col.TextType,
+		Lemma:         col.Lemma,
+		IsHead:        col.MutualDist > 0,
+		Deprel:        col.Deprel,
+		Collocate:     col.Collocate,
+		LogDice:       roundedFloat(col.LogDice),
+		TScore:        roundedFloat(col.TScore),
+		MutualDist:    roundedFloat(col.MutualDist),
+		LMI:           roundedFloat(col.LMI),
+		RRFScore:      roundedFloat(col.RRFScore),
+		LogLikelihood: roundedFloat(col.LogLikelihood),
+		TextType:      col.TextType,
 	})
 }
 
@@ -608,6 +618,7 @@ func (ldr Collocation) AsRow() []any {
 		ldr.formatNum(ldr.TScore),
 		ldr.formatNum(ldr.LogDice),
 		ldr.formatNum(ldr.LMI),
+		ldr.formatNum(ldr.LogLikelihood),
 		ldr.formatNum4(ldr.RRFScore),
 		ldr.formatNum(ldr.MutualDist),
 	}
