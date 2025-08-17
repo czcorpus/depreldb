@@ -73,7 +73,7 @@ func (otf TokenFreq) LemmaKey() string {
 	return otf.Lemma
 }
 
-func (otf TokenFreq) UpdateFreq(freq int) {
+func (otf *TokenFreq) UpdateFreq(freq int) {
 	otf.Freq += freq
 }
 
