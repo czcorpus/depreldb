@@ -178,6 +178,7 @@ func main() {
 					"T-Score",
 					"Log-Dice",
 					"LMI",
+					"LL",
 					"RRF",
 					"mutual dist.",
 				)
