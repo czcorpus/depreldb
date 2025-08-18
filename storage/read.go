@@ -274,6 +274,7 @@ func (db *DB) CalculateMeasures(
 	lemma, pos, textType string,
 	lemmaIsPrefix bool,
 	isHead *bool,
+	maxAvgCollocateDist float64,
 	limit int,
 	sortBy SortingMeasure,
 	collocateGroupByPos, groupByDeprel, collocateGroupByTextType bool,
@@ -394,6 +395,10 @@ func (db *DB) CalculateMeasures(
 
 					if customFilter != nil && !customFilter(
 						decKey.Pos1, decKey.Deprel, decKey.Pos2, decKey.TextType, collValue.Dist) {
+						continue
+					}
+
+					if maxAvgCollocateDist > 0 && math.Abs(collValue.Dist) > maxAvgCollocateDist {
 						continue
 					}
 
