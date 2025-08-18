@@ -48,6 +48,7 @@ type CalculationOptions struct {
 	CollocateGroupByPos      bool
 	GroupByDeprel            bool
 	CollocateGroupByTextType bool
+	MaxAvgCollocateDist      float64
 	LemmasAsHead             *bool
 	PredefinedSearch         PredefinedSearch
 }
@@ -121,6 +122,14 @@ func WithPredefinedSearch(srch PredefinedSearch) func(opts *CalculationOptions) 
 		opts.CollocateGroupByPos = true
 		isHead := srch == ModifiersOf
 		opts.LemmasAsHead = &isHead
+	}
+}
+
+// WithMaxAvgCollocateDist defines max. absolute value of average
+// distance between tokens we want to have in the result
+func WithMaxAvgCollocateDist(dist float64) func(opts *CalculationOptions) {
+	return func(opts *CalculationOptions) {
+		opts.MaxAvgCollocateDist = dist
 	}
 }
 
