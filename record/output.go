@@ -90,19 +90,13 @@ type CollBinaryKey [16]byte
 // Layout: [Token1ID:4][PoS1:1][Deprel1:1][Token2ID:4][PoS2:1][Deprel2:1][TextType:1][padding:3]
 func (rcf RawCollocFreq) GroupingKeyBinary() CollBinaryKey {
 	var key CollBinaryKey
-	if rcf.AVGDist > 0 {
-		key[0] = pairTokenPrefix
-
-	} else {
-		key[0] = revPairTokenPrefix
-	}
-	binary.LittleEndian.PutUint32(key[1:5], rcf.Token1ID)
-	key[5] = rcf.PoS1
-	binary.LittleEndian.PutUint16(key[6:8], rcf.Deprel)
-	binary.LittleEndian.PutUint32(key[8:12], rcf.Token2ID)
-	key[12] = rcf.PoS2
-	key[13] = rcf.TextType
-	// key[14:16] is padding/unused
+	binary.LittleEndian.PutUint32(key[0:4], rcf.Token1ID)
+	key[4] = rcf.PoS1
+	binary.LittleEndian.PutUint16(key[5:7], rcf.Deprel)
+	binary.LittleEndian.PutUint32(key[7:11], rcf.Token2ID)
+	key[11] = rcf.PoS2
+	key[12] = rcf.TextType
+	// key[13:16] is padding/unused
 	return key
 }
 
