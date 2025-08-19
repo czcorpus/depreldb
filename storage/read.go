@@ -312,13 +312,8 @@ func (db *DB) CalculateMeasures(
 	// if user wanted a concrete text type, we need to "group by" it
 	// in all the data (F(x), F(y), F(x, y)) so we will be able to remove
 	// unwanted text types
-	if textType != "" {
+	if textType != "" || collocateGroupByTextType {
 		sumFreqs1.GroupByTT()
-		sumFreqs2.GroupByTT()
-		sumCollFreqs.GroupByTT()
-	}
-
-	if collocateGroupByTextType {
 		sumFreqs2.GroupByTT()
 		sumCollFreqs.GroupByTT()
 	}
@@ -434,6 +429,7 @@ func (db *DB) CalculateMeasures(
 				}
 				f1 := sumFreqs1.get(val.GroupingKeyLemma1Binary())
 				f2 := sumFreqs2.get(val.GroupingKeyLemma2Binary())
+
 				logDice := 14.0 + math.Log2(float64(2*val.Freq)/float64(f1.Freq+f2.Freq))
 				tscore := (float64(val.Freq) - (float64(f1.Freq)*float64(f2.Freq))/float64(db.Metadata.CorpusSize)) / math.Sqrt(float64(val.Freq))
 				lmi := float64(val.Freq) * math.Log2(float64(db.Metadata.CorpusSize)*float64(val.Freq)/float64(f1.Freq*f2.Freq))
