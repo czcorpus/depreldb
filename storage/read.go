@@ -149,6 +149,25 @@ func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaWithID, error) {
 	return ans, err
 }
 
+func (db *DB) GetMatchingLemmaEntries(tokenID uint32) ([]record.DecodedKey, error) {
+	var results []record.DecodedKey
+	err := db.bdb.View(func(txn *badger.Txn) error {
+		searchKey := record.TokenFreqSearchKey(tokenID, 0, 0, 0)
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = searchKey
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			key := it.Item().Key()
+			decodedKey := record.DecodeTokenFreqKey(key)
+			results = append(results, decodedKey)
+		}
+		return nil
+	})
+	return results, err
+}
+
 func (db *DB) getLemmaByIDTxn(txn *badger.Txn, tokenID uint32) (string, error) {
 	item, err := txn.Get(record.TokenIDToRevIndexKey(tokenID))
 	if err != nil {
