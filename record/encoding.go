@@ -180,6 +180,9 @@ func DecodeTokenFreqKey(key []byte) DecodedKey {
 	if len(key) >= 7 {
 		ans.TextType = key[6]
 	}
+	if len(key) >= 8 {
+		ans.Deprel = binary.LittleEndian.Uint16(key[7:9])
+	}
 	return ans
 }
 
