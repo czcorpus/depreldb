@@ -153,9 +153,10 @@ func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaWithID, error) {
 type LemmaPosDeprel struct {
 	Pos    string
 	Deprel string
+	Freq   int
 }
 
-func (db *DB) GetMatchingLemmaPosDeprelPairs(tokenID uint32) ([]LemmaPosDeprel, error) {
+func (db *DB) GetMatchingLemmaProps(tokenID uint32) ([]LemmaPosDeprel, error) {
 	var results []LemmaPosDeprel
 	err := db.bdb.View(func(txn *badger.Txn) error {
 		searchKey := record.TokenFreqSearchKey(tokenID, 0, 0, 0)
@@ -169,9 +170,20 @@ func (db *DB) GetMatchingLemmaPosDeprelPairs(tokenID uint32) ([]LemmaPosDeprel, 
 			decodedKey := record.DecodeTokenFreqKey(key)
 			pos := record.UDPosFromByte(decodedKey.Pos1)
 			deprel := record.UDDeprelFromUint16(decodedKey.Deprel)
+
+			var tokenValue record.TokenValue
+			err := it.Item().Value(func(val []byte) error {
+				tokenValue = record.DecodeTokenValue(val)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
 			results = append(results, LemmaPosDeprel{
 				Pos:    pos.Readable,
 				Deprel: deprel.Readable,
+				Freq:   int(tokenValue.Freq),
 			})
 		}
 		return nil
