@@ -23,13 +23,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/czcorpus/scollector/dataimport"
-	"github.com/czcorpus/scollector/record"
+	"github.com/czcorpus/depreldb/dataimport"
+	"github.com/czcorpus/depreldb/record"
 	"github.com/rs/zerolog/log"
 
 	"github.com/czcorpus/cnc-gokit/fs"
 	"github.com/czcorpus/cnc-gokit/logging"
-	"github.com/czcorpus/scollector/storage"
+	"github.com/czcorpus/depreldb/storage"
 	"github.com/tomachalek/vertigo/v6"
 )
 

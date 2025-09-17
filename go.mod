@@ -1,4 +1,4 @@
-module github.com/czcorpus/scollector
+module github.com/czcorpus/depreldb
 
 go 1.24.1
 

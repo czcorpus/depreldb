@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/czcorpus/scollector/record"
-	"github.com/czcorpus/scollector/storage"
+	"github.com/czcorpus/depreldb/record"
+	"github.com/czcorpus/depreldb/storage"
 	"github.com/rs/zerolog/log"
 	"github.com/tomachalek/vertigo/v6"
 )

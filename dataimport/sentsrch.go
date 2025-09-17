@@ -18,7 +18,7 @@ package dataimport
 
 import (
 	"github.com/czcorpus/cnc-gokit/collections"
-	"github.com/czcorpus/scollector/storage"
+	"github.com/czcorpus/depreldb/storage"
 	"github.com/tomachalek/vertigo/v6"
 )
 

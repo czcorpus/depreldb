@@ -29,8 +29,8 @@ import (
 	"syscall"
 
 	"github.com/czcorpus/cnc-gokit/logging"
-	"github.com/czcorpus/scollector/scoll"
-	"github.com/czcorpus/scollector/storage"
+	"github.com/czcorpus/depreldb/scoll"
+	"github.com/czcorpus/depreldb/storage"
 	"github.com/fatih/color"
 	"github.com/rodaine/table"
 )

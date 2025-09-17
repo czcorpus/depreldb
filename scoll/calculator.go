@@ -17,8 +17,8 @@
 package scoll
 
 import (
-	"github.com/czcorpus/scollector/record"
-	"github.com/czcorpus/scollector/storage"
+	"github.com/czcorpus/depreldb/record"
+	"github.com/czcorpus/depreldb/storage"
 )
 
 type Calculator struct {

@@ -17,7 +17,7 @@
 package storage
 
 import (
-	"github.com/czcorpus/scollector/record"
+	"github.com/czcorpus/depreldb/record"
 )
 
 type tokenFreqGrouping struct {

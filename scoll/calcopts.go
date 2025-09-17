@@ -16,7 +16,7 @@
 
 package scoll
 
-import "github.com/czcorpus/scollector/storage"
+import "github.com/czcorpus/depreldb/storage"
 
 const (
 
