@@ -1,6 +1,6 @@
-# Scollector
+# DeprelDB
 
-A high-performance Go-based **collocation extraction and search tool** for linguistic analysis. Scollector processes linguistic data to calculate statistical measures like T-Score, Log-Dice, and LMI (Local Mutual Information) for finding meaningful syntactic collocations between lemmas.
+A high-performance Go-based **collocation extraction and search tool** for linguistic analysis. DeprelDB processes linguistic data to calculate statistical measures like T-Score, Log-Dice, and LMI (Local Mutual Information) for finding meaningful syntactic collocations between lemmas.
 
 ## Features
 
@@ -25,8 +25,8 @@ A high-performance Go-based **collocation extraction and search tool** for lingu
 
 ```bash
 # Clone the repository
-git clone https://github.com/czcorpus/scollector
-cd scollector
+git clone https://github.com/czcorpus/depreldb
+cd depreldb
 
 # Build the project
 make all
@@ -43,7 +43,7 @@ go build -o scollsrch ./cmd/search
 
 ## Input Data Format
 
-Scollector expects linguistic data in **vertical format**, where each token is on a separate line with tab-separated attributes. Sentences are separated by `<s>` structures with possible xml-like attributes.
+DeprelDB expects linguistic data in **vertical format**, where each token is on a separate line with tab-separated attributes. Sentences are separated by `<s>` structures with possible xml-like attributes.
 
 
 
@@ -216,7 +216,7 @@ Where:
 
 ## Database Schema
 
-Scollector uses BadgerDB with highly optimized binary encoding for maximum performance:
+DeprelDB uses BadgerDB with highly optimized binary encoding for maximum performance:
 
 - **Binary encoding**: collocation entries encoded in 16 bytes long keys (9 bytes for single lemma frequencies)
 - **Frequency and node distance encoded in DB values**
@@ -239,7 +239,7 @@ Scollector uses BadgerDB with highly optimized binary encoding for maximum perfo
 ### Project Structure
 
 ```
-scollector/
+depreldb/
 ├── cmd/
 │   └── mkscolldb/       # An utility for importing corpus vertical files
 │   └── search/          # Search command-line interface with REPL mode

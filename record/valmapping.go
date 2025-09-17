@@ -118,7 +118,7 @@ func (udm *DeprelMapping) Get(key string) (uint16, bool) {
 // attaching a new byte value for it.
 //
 // The method is expected to be used mainly during a corpus/text
-// import when scollector is performing syntax tree editing by
+// import when depreldb is performing syntax tree editing by
 // removing/shrinking "useless" nodes.
 //
 // Calling the method with an already registered key causes panic.
@@ -154,7 +154,7 @@ func (udm *DeprelMapping) AsMap() map[string]uint16 {
 }
 
 // DeprelMappingFromMap is used for instantiating (possibly extended) deprel
-// maps for a specific corpus/dataset based on stored metadata. 
+// maps for a specific corpus/dataset based on stored metadata.
 func DeprelMappingFromMap(src map[string]uint16) *DeprelMapping {
 	return &DeprelMapping{
 		items:    src,

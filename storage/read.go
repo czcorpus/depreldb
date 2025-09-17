@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/czcorpus/scollector/record"
+	"github.com/czcorpus/depreldb/record"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
 )
