@@ -1,6 +1,6 @@
 # DeprelDB
 
-A high-performance Go-based **collocation extraction and search tool** for linguistic analysis. DeprelDB processes linguistic data to calculate statistical measures like T-Score, Log-Dice, and LMI (Local Mutual Information) for finding meaningful syntactic collocations between lemmas.
+A high-performance Go-based **dependency-based collocation extraction and search library** for linguistic analysis. DeprelDB processes linguistic data to calculate statistical measures like T-Score, Log-Dice, and LMI (Local Mutual Information) for finding meaningful syntactic collocations between lemmas.
 
 ## Features
 
