@@ -65,10 +65,9 @@ func (f *freqs) newCollocFreq(token1, token2 *vertigo.Token, freq int, distance 
 
 func (f *freqs) AddLemma(token *vertigo.Token, freq int) {
 	newEntry := record.TokenFreq{
-		Lemma:  token.PosAttrByIndex(f.LemmaIdx),
-		PoS:    record.ImportUDPoS(token.PosAttrByIndex(f.PosIdx)),
-		Deprel: record.ImportUDDeprel(token.PosAttrByIndex(f.DeprelIdx)),
-		Freq:   freq,
+		Lemma: token.PosAttrByIndex(f.LemmaIdx),
+		PoS:   record.ImportUDPoS(token.PosAttrByIndex(f.PosIdx)),
+		Freq:  freq,
 		TextType: record.TextType{
 			Readable: token.StructAttrs[f.TextTypeAttr],
 			Raw:      f.TTMapping[token.StructAttrs[f.TextTypeAttr]],

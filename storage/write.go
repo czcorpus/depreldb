@@ -72,7 +72,7 @@ func NewTokenIDSequence() *tokenIDSequence {
 // --------------
 
 func (db *DB) StoreSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, freq record.TokenFreq) error {
-	key := record.TokenFreqKey(tokenID, freq.PoS.Byte(), freq.TextType.Byte(), freq.Deprel.AsUint16())
+	key := record.TokenFreqKey(tokenID, freq.PoS.Byte(), freq.TextType.Byte())
 	encoded := record.EncodeTokenValue(uint32(freq.Freq))
 	return txn.Set(key, encoded)
 }

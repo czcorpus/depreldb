@@ -130,13 +130,12 @@ func AllCollFreqsOfToken(isHead bool, tokenID uint32) []byte {
 //
 // For generating search keys, use TokenFreqSearchKey which generates
 // proper key prefix in case you provide zero pos, textType or deprel.
-func TokenFreqKey(tokenID uint32, pos, textType byte, deprel uint16) []byte {
-	key := make([]byte, 1+4+1+1+2)
+func TokenFreqKey(tokenID uint32, pos, textType byte) []byte {
+	key := make([]byte, 1+4+1+1)
 	key[0] = singleTokenPrefix
 	binary.LittleEndian.PutUint32(key[1:5], tokenID)
 	key[5] = pos
 	key[6] = textType
-	binary.LittleEndian.PutUint16(key[7:9], deprel)
 	return key
 }
 
@@ -144,7 +143,7 @@ func TokenFreqKey(tokenID uint32, pos, textType byte, deprel uint16) []byte {
 // produces byte slice key without trailing zero values with pos having the
 // highest priority following by textType and deprel. I.e. if you provide zero
 // pos, then the key will contain just token ID (and the key identifier zero byte).
-func TokenFreqSearchKey(tokenID uint32, pos, textType byte, deprel uint16) []byte {
+func TokenFreqSearchKey(tokenID uint32, pos, textType byte) []byte {
 	key := make([]byte, 5, 9)
 	key[0] = singleTokenPrefix
 	binary.LittleEndian.PutUint32(key[1:5], tokenID)
@@ -152,11 +151,6 @@ func TokenFreqSearchKey(tokenID uint32, pos, textType byte, deprel uint16) []byt
 		key = append(key, pos)
 		if textType > 0 {
 			key = append(key, textType)
-			if deprel > 0 {
-				deprelBytes := make([]byte, 2)
-				binary.LittleEndian.PutUint16(deprelBytes, deprel)
-				key = append(key, deprelBytes...)
-			}
 		}
 	}
 	return key
