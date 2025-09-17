@@ -80,7 +80,7 @@ Before searching, you need to import linguistic data into the database using the
 - `-parent-idx=12` - Column position of syntactic parent info (default: 12)
 - `-deprel-idx=11` - Column position of dependency relation (default: 11)
 - `-min-freq=20` - Minimal frequency of collocates to accept (default: 20)
-- `-verbose` - Print detailed activity information (default: true)
+- `-verbose` - Print detailed activity information (default: false)
 - `-log-level=info` - Set logging level (debug, info, warn, error)
 
 #### Import Examples
@@ -205,14 +205,14 @@ LMI = F(x,y) * log₂(N * F(x,y) / (F(x) * F(y)))
 
 Combines rankings from T-Score, Log-Dice, and LMI using reciprocal rank fusion for better overall ranking:
 ```
-RRF_score = Σ(1 / (k + rank_i))
+RRF_score = Σ(1 / (60 + rank_i))
 ```
-where k=60 (RRF constant) and rank_i is the rank in each individual measure.
 
 Where:
-- `F(x,y)` = frequency of co-occurrence
-- `F(x)`, `F(y)` = individual word frequencies
+- `F(x,y)` = frequency of an co-occurrence
+- `F(x)`, `F(y)` = individual word frequency
 - `N` = corpus size
+- `rank_i` is a rank of an item when considering an `i-th` measure.
 
 ## Database Schema
 
