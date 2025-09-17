@@ -70,15 +70,15 @@ func (clm *itemsWalktrhoughCache) getLemmaByIDTxn(txn *badger.Txn, tokenID uint3
 	return ans, nil
 }
 
-func (clm *itemsWalktrhoughCache) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.RawTokenFreq, error) {
+func (clm *itemsWalktrhoughCache) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte) ([]record.RawTokenFreq, error) {
 	if clm.rawTokenFreqCache == nil {
 		clm.rawTokenFreqCache = make(map[string][]record.RawTokenFreq)
 	}
-	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
+	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType)
 	ans, ok := clm.rawTokenFreqCache[string(srchKey)]
 	var err error
 	if !ok {
-		ans, err = clm.db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
+		ans, err = clm.db.getRawTokenFreqTx(txn, tokenID, pos, textType)
 		if err != nil {
 			return []record.RawTokenFreq{}, err
 		}
@@ -149,17 +149,17 @@ func (db *DB) GetLemmaIDsByPrefix(lemmaPrefix string) ([]lemmaWithID, error) {
 	return ans, err
 }
 
-// LemmaPosDeprel represents a [Pos, Deprel] pair for a lemma entry
-type LemmaPosDeprel struct {
-	Pos    string
-	Deprel string
-	Freq   int
+type LemmaProps struct {
+	Pos      string
+	Deprel   string
+	Freq     int
+	TextType string
 }
 
-func (db *DB) GetMatchingLemmaProps(tokenID uint32) ([]LemmaPosDeprel, error) {
-	var results []LemmaPosDeprel
+func (db *DB) GetMatchingLemmaProps(tokenID uint32) ([]LemmaProps, error) {
+	var results []LemmaProps
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		searchKey := record.TokenFreqSearchKey(tokenID, 0, 0, 0)
+		searchKey := record.TokenFreqSearchKey(tokenID, 0, 0)
 		opts := badger.DefaultIteratorOptions
 		opts.Prefix = searchKey
 		it := txn.NewIterator(opts)
@@ -170,6 +170,7 @@ func (db *DB) GetMatchingLemmaProps(tokenID uint32) ([]LemmaPosDeprel, error) {
 			decodedKey := record.DecodeTokenFreqKey(key)
 			pos := record.UDPosFromByte(decodedKey.Pos1)
 			deprel := record.UDDeprelFromUint16(decodedKey.Deprel)
+			textType := db.textTypes.RawToReadable(decodedKey.TextType)
 
 			var tokenValue record.TokenValue
 			err := it.Item().Value(func(val []byte) error {
@@ -180,10 +181,11 @@ func (db *DB) GetMatchingLemmaProps(tokenID uint32) ([]LemmaPosDeprel, error) {
 				return err
 			}
 
-			results = append(results, LemmaPosDeprel{
-				Pos:    pos.Readable,
-				Deprel: deprel.Readable,
-				Freq:   int(tokenValue.Freq),
+			results = append(results, LemmaProps{
+				Pos:      pos.Readable,
+				Deprel:   deprel.Readable,
+				Freq:     int(tokenValue.Freq),
+				TextType: textType,
 			})
 		}
 		return nil
@@ -224,10 +226,10 @@ func (db *DB) GetLemmaByID(tokenID uint32) (string, error) {
 	return lemma, err
 }
 
-func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType byte, deprel uint16) ([]record.TokenFreq, error) {
+func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType byte) ([]record.TokenFreq, error) {
 	ans := []record.TokenFreq{}
 	err := db.bdb.View(func(txn *badger.Txn) error {
-		tmp, err := db.getSingleTokenFreqTx(txn, tokenID, pos, textType, deprel)
+		tmp, err := db.getSingleTokenFreqTx(txn, tokenID, pos, textType)
 		if err != nil {
 			return err
 		}
@@ -238,9 +240,9 @@ func (db *DB) GetSingleTokenFreq(tokenID uint32, pos, textType byte, deprel uint
 	return ans, err
 }
 
-func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.TokenFreq, error) {
+func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte) ([]record.TokenFreq, error) {
 	cachedTokIDs := itemsWalktrhoughCache{db: db}
-	rawItems, err := db.getRawTokenFreqTx(txn, tokenID, pos, textType, deprel)
+	rawItems, err := db.getRawTokenFreqTx(txn, tokenID, pos, textType)
 	if err != nil {
 		return []record.TokenFreq{}, err
 	}
@@ -271,9 +273,9 @@ func (db *DB) getSingleTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textTyp
 //
 // Also note that even if it is possible to filter by deprel, this value is not
 // a part of the result list item type.
-func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte, deprel uint16) ([]record.RawTokenFreq, error) {
+func (db *DB) getRawTokenFreqTx(txn *badger.Txn, tokenID uint32, pos, textType byte) ([]record.RawTokenFreq, error) {
 	ans := make([]record.RawTokenFreq, 0, 100)
-	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType, deprel)
+	srchKey := record.TokenFreqSearchKey(tokenID, pos, textType)
 	opts := badger.DefaultIteratorOptions
 	opts.Prefix = srchKey
 	it := txn.NewIterator(opts)
@@ -383,7 +385,7 @@ func (db *DB) CalculateMeasures(
 			// First, get F(x) (i.e. freq. of the searched lemma). This search respects
 			// possible provided PoS and text type specification. Attribute deprel cannot
 			// be used in filter this way so it is filtered later (if needed).
-			partialFreqs1, err := walkthruCache.getRawTokenFreqTx(txn, lemmaMatch.TokenID, posID, ttID, 0) // TODO deprel as an arg.
+			partialFreqs1, err := walkthruCache.getRawTokenFreqTx(txn, lemmaMatch.TokenID, posID, ttID)
 			if err != nil {
 				return fmt.Errorf("failed to calculate collocation scores: %w", err)
 			}
@@ -453,7 +455,7 @@ func (db *DB) CalculateMeasures(
 
 					// Get F(y) - frequency of second lemma
 					partialSplitFreq2, err := walkthruCache.getRawTokenFreqTx(
-						txn, decKey.Token2ID, decKey.Pos2, ttID, 0)
+						txn, decKey.Token2ID, decKey.Pos2, ttID)
 					if err != nil {
 						continue // Skip if we can't find single freq
 					}

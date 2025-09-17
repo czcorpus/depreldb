@@ -33,7 +33,6 @@ func (gk GroupingKey) String() string {
 type TokenFreq struct {
 	Lemma    string
 	PoS      UDPoS
-	Deprel   UDDeprel
 	Freq     int
 	TextType TextType
 }
@@ -44,10 +43,9 @@ func (otf TokenFreq) IsZero() bool {
 
 func (otf TokenFreq) String() string {
 	return fmt.Sprintf(
-		"TokenFreq(lemma: %s, pos: %s, deprel: %s, freq: %d, tt: %x)",
+		"TokenFreq(lemma: %s, pos: %s, freq: %d, tt: %x)",
 		otf.Lemma,
 		UDPoSMapping.GetRev(otf.PoS.Byte()),
-		UDDeprelMapping.GetRev(otf.Deprel.AsUint16()),
 		otf.Freq,
 		otf.TextType,
 	)
@@ -61,9 +59,9 @@ func (otf TokenFreq) HasPoS() bool {
 // e.g. for incremental calculation of lemma's frequency as we process a text source file.
 func (otf TokenFreq) Key() GroupingKey {
 	if otf.PoS.IsValid() {
-		return GroupingKey(fmt.Sprintf("%x|%s|%x|%x", otf.TextType.Byte(), otf.Lemma, otf.PoS.Byte(), otf.Deprel.AsUint16()))
+		return GroupingKey(fmt.Sprintf("%x|%s|%x", otf.TextType.Byte(), otf.Lemma, otf.PoS.Byte()))
 	}
-	return GroupingKey(fmt.Sprintf("%x|%s|-|%x", otf.TextType.Byte(), otf.Lemma, otf.Deprel.AsUint16()))
+	return GroupingKey(fmt.Sprintf("%x|%s|-", otf.TextType.Byte(), otf.Lemma))
 }
 
 // LemmaKey generates a key dependent just on the actual lemma (i.e. no PoS etc.).

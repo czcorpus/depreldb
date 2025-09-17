@@ -40,22 +40,19 @@ func TestStoreData(t *testing.T) {
 	singleFreqs := map[record.GroupingKey]record.TokenFreq{
 		"test1": {
 			Lemma:    "word",
-			PoS:      record.UDPosFromByte(0x01),      // ADJ
-			Deprel:   record.UDDeprelFromUint16(0x01), // amod
+			PoS:      record.UDPosFromByte(0x01), // ADJ
 			Freq:     100,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
 		},
 		"test2": {
 			Lemma:    "example",
-			PoS:      record.UDPosFromByte(0x02),      // NOUN
-			Deprel:   record.UDDeprelFromUint16(0x02), // nsubj
+			PoS:      record.UDPosFromByte(0x02), // NOUN
 			Freq:     50,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
 		},
 		"test3": {
 			Lemma:    "run",
-			PoS:      record.UDPosFromByte(0x03),      // VERB
-			Deprel:   record.UDDeprelFromUint16(0x03), // root
+			PoS:      record.UDPosFromByte(0x03), // VERB
 			Freq:     75,
 			TextType: record.TextType{Raw: 0x01, Readable: "test"},
 		},
@@ -107,9 +104,8 @@ func TestStoreData(t *testing.T) {
 			tokenID, err := db.GetLemmaID(freq)
 			assert.NoError(t, err, "Should get lemma ID for %s", freq.Lemma)
 			assert.NotZero(t, tokenID, "Token ID should be non-zero for lemma %s", freq.Lemma)
-
 			// Get stored frequency
-			storedFreqInfos, err := db.GetSingleTokenFreq(tokenID, freq.PoS.Byte(), freq.TextType.Byte(), 0)
+			storedFreqInfos, err := db.GetSingleTokenFreq(tokenID, freq.PoS.Byte(), freq.TextType.Byte())
 			assert.NoError(t, err, "Should get stored frequency for %s", freq.Lemma)
 			assert.NotEmpty(t, storedFreqInfos, "Should get at least one frequency entry for %s", freq.Lemma)
 
@@ -117,15 +113,15 @@ func TestStoreData(t *testing.T) {
 			totalFreq := record.SumTokenFreqs(storedFreqInfos)
 			assert.Equal(t, freq.Freq, totalFreq, "Total frequency should match for %s", freq.Lemma)
 
-			// Check that at least one entry has the correct deprel
+			// Check that at least one entry has the correct pos
 			found := false
 			for _, storedFreq := range storedFreqInfos {
-				if storedFreq.Deprel == freq.Deprel {
+				if storedFreq.PoS == freq.PoS {
 					found = true
 					break
 				}
 			}
-			assert.True(t, found, "Should find entry with correct deprel for %s", freq.Lemma)
+			assert.True(t, found, "Should find entry with correct pos for %s", freq.Lemma)
 
 			// Verify reverse lookup
 			lemma, err := db.GetLemmaByID(tokenID)
@@ -197,14 +193,12 @@ func TestStoreData(t *testing.T) {
 			"low": {
 				Lemma:    "low",
 				PoS:      record.UDPosFromByte(0x01),
-				Deprel:   record.UDDeprelFromUint16(0x01),
 				Freq:     10,
 				TextType: record.TextType{Raw: 0x01, Readable: "test"},
 			},
 			"freq": {
 				Lemma:    "freq",
 				PoS:      record.UDPosFromByte(0x02),
-				Deprel:   record.UDDeprelFromUint16(0x02),
 				Freq:     10,
 				TextType: record.TextType{Raw: 0x01, Readable: "test"},
 			},
